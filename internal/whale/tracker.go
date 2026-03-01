@@ -126,6 +126,17 @@ func (t *Tracker) AddManual(ctx context.Context, address, alias string) {
 	}
 }
 
+// Remove removes a whale by address from memory and SQLite.
+func (t *Tracker) Remove(ctx context.Context, address string) {
+	t.mu.Lock()
+	delete(t.whales, address)
+	t.mu.Unlock()
+
+	if err := t.whaleStore.DeleteByAddress(ctx, address); err != nil {
+		t.logger.Error("failed to delete whale", "address", address, "error", err)
+	}
+}
+
 // AddAuto adds an automatically detected whale. Returns true if newly added.
 func (t *Tracker) AddAuto(ctx context.Context, address string, volume float64) bool {
 	t.mu.Lock()

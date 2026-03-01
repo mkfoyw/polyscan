@@ -6,9 +6,11 @@ import (
 	"log/slog"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/mkfoyw/polyscan/internal/profile"
 	"github.com/mkfoyw/polyscan/internal/store"
 	"github.com/mkfoyw/polyscan/internal/types"
 	"github.com/mkfoyw/polyscan/internal/whale"
@@ -23,6 +25,8 @@ type Server struct {
 	priceStore      *store.PriceEventStore
 	settlementStore *store.SettlementStore
 	tracker         *whale.Tracker
+	profileClient   *profile.Client
+	adminTokens     map[string]struct{}
 	topMoversFn     func(time.Duration, int) []types.PriceMover
 	broker          *Broker
 	logger          *slog.Logger
@@ -32,6 +36,7 @@ type Server struct {
 // NewServer creates a new API server.
 func NewServer(
 	addr string,
+	adminTokens []string,
 	mktStore *types.MarketStore,
 	tradeStore *store.TradeStore,
 	alertStore *store.AlertStore,
@@ -39,6 +44,7 @@ func NewServer(
 	priceStore *store.PriceEventStore,
 	settlementStore *store.SettlementStore,
 	tracker *whale.Tracker,
+	profileClient *profile.Client,
 	topMoversFn func(time.Duration, int) []types.PriceMover,
 	broker *Broker,
 	logger *slog.Logger,
@@ -51,6 +57,8 @@ func NewServer(
 		priceStore:      priceStore,
 		settlementStore: settlementStore,
 		tracker:         tracker,
+		profileClient:   profileClient,
+		adminTokens:     toSet(adminTokens),
 		topMoversFn:     topMoversFn,
 		broker:          broker,
 		logger:          logger,
@@ -68,6 +76,7 @@ func NewServer(
 		api.GET("/markets", s.handleMarkets)
 		api.GET("/trades", s.handleTrades)
 		api.GET("/trades/:wallet", s.handleTradesByWallet)
+		api.GET("/whale-trades", s.handleWhaleTrades)
 		api.GET("/whales", s.handleWhales)
 		api.GET("/whales/:address", s.handleWhaleDetail)
 		api.GET("/alerts", s.handleAlerts)
@@ -76,11 +85,19 @@ func NewServer(
 		api.GET("/new-markets", s.handleNewMarkets)
 		api.GET("/settlements", s.handleSettlements)
 		api.GET("/events", s.handleSSE) // SSE real-time push
+
+		// Admin endpoints (require admin_token)
+		admin := api.Group("", s.adminAuth())
+		admin.POST("/whales", s.handleAddWhale)
+		admin.DELETE("/whales/:address", s.handleDeleteWhale)
 	}
 
-	// Serve dashboard
+	// Serve pages
 	r.GET("/", func(c *gin.Context) {
 		c.File("web/index.html")
+	})
+	r.GET("/whales", func(c *gin.Context) {
+		c.File("web/whales.html")
 	})
 
 	s.httpServer = &http.Server{
@@ -208,7 +225,167 @@ func (s *Server) handleWhales(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
-	c.JSON(http.StatusOK, whales)
+
+	// Collect addresses that have no alias to resolve profile names
+	var needProfile []string
+	for _, w := range whales {
+		if w.Alias == "" {
+			needProfile = append(needProfile, w.Address)
+		}
+	}
+
+	// Build response with optional profile_name field
+	type whaleResp struct {
+		store.WhaleRecord
+		ProfileName string `json:"profile_name,omitempty"`
+	}
+
+	profileMap := make(map[string]string)
+	if len(needProfile) > 0 {
+		if pm, err := s.tradeStore.ProfileNamesForWallets(ctx, needProfile); err == nil {
+			profileMap = pm
+		}
+	}
+
+	resp := make([]whaleResp, len(whales))
+	for i, w := range whales {
+		resp[i] = whaleResp{WhaleRecord: w}
+		if w.Alias == "" {
+			if name, ok := profileMap[w.Address]; ok && name != "" {
+				resp[i].ProfileName = name
+			} else if s.profileClient != nil {
+				if name := s.profileClient.Lookup(ctx, w.Address); name != "" {
+					resp[i].ProfileName = name
+				}
+			}
+		}
+	}
+
+	c.JSON(http.StatusOK, resp)
+}
+
+func (s *Server) handleWhaleTrades(c *gin.Context) {
+	ctx := c.Request.Context()
+	limit := queryInt(c, "limit", 50)
+	beforeTS := queryInt64(c, "before", 0)
+	afterTS := queryInt64(c, "after", 0)
+	walletFilter := strings.ToLower(strings.TrimSpace(c.Query("wallet")))
+
+	// Get all tracked whale addresses
+	whales, err := s.whaleStore.GetAll(ctx)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	if len(whales) == 0 {
+		c.JSON(http.StatusOK, []store.TradeRecord{})
+		return
+	}
+
+	aliasMap := make(map[string]string, len(whales))
+	var addrs []string
+	for _, w := range whales {
+		if w.Alias != "" {
+			aliasMap[w.Address] = w.Alias
+		}
+		// If wallet filter specified, only query that one address
+		if walletFilter != "" {
+			if strings.EqualFold(w.Address, walletFilter) {
+				addrs = []string{w.Address}
+			}
+		} else {
+			addrs = append(addrs, w.Address)
+		}
+	}
+	if len(addrs) == 0 {
+		c.JSON(http.StatusOK, []store.TradeRecord{})
+		return
+	}
+
+	trades, err := s.tradeStore.RecentByWhales(ctx, addrs, int64(limit), beforeTS, afterTS)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	// Enrich trades that have no profile name
+	for i := range trades {
+		if trades[i].ProfileName == "" {
+			if alias, ok := aliasMap[trades[i].ProxyWallet]; ok && alias != "" {
+				trades[i].ProfileName = alias
+			} else if s.profileClient != nil {
+				trades[i].ProfileName = s.profileClient.Lookup(ctx, trades[i].ProxyWallet)
+			}
+		}
+	}
+
+	c.JSON(http.StatusOK, trades)
+}
+
+// toSet converts a string slice to a set for O(1) lookups.
+func toSet(ss []string) map[string]struct{} {
+	m := make(map[string]struct{}, len(ss))
+	for _, s := range ss {
+		if s != "" {
+			m[s] = struct{}{}
+		}
+	}
+	return m
+}
+
+// adminAuth returns middleware that checks the admin token.
+func (s *Server) adminAuth() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		if len(s.adminTokens) == 0 {
+			c.JSON(http.StatusForbidden, gin.H{"error": "admin API disabled (no admin_tokens configured)"})
+			c.Abort()
+			return
+		}
+		token := c.GetHeader("Authorization")
+		token = strings.TrimPrefix(token, "Bearer ")
+		if token == "" {
+			token = c.Query("token")
+		}
+		if _, ok := s.adminTokens[token]; !ok {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid or missing token"})
+			c.Abort()
+			return
+		}
+		c.Next()
+	}
+}
+
+// handleAddWhale adds a whale address to tracking.
+func (s *Server) handleAddWhale(c *gin.Context) {
+	ctx := c.Request.Context()
+	var req struct {
+		Address string `json:"address" binding:"required"`
+		Alias   string `json:"alias"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "address is required"})
+		return
+	}
+
+	req.Address = strings.ToLower(strings.TrimSpace(req.Address))
+	if !strings.HasPrefix(req.Address, "0x") || len(req.Address) != 42 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid Ethereum address"})
+		return
+	}
+
+	s.tracker.AddManual(ctx, req.Address, req.Alias)
+	s.logger.Info("whale added via API", "address", req.Address, "alias", req.Alias)
+	c.JSON(http.StatusOK, gin.H{"ok": true, "address": req.Address, "alias": req.Alias})
+}
+
+// handleDeleteWhale removes a whale from tracking.
+func (s *Server) handleDeleteWhale(c *gin.Context) {
+	ctx := c.Request.Context()
+	address := strings.ToLower(strings.TrimSpace(c.Param("address")))
+
+	s.tracker.Remove(ctx, address)
+	s.logger.Info("whale removed via API", "address", address)
+	c.JSON(http.StatusOK, gin.H{"ok": true, "address": address})
 }
 
 func (s *Server) handleWhaleDetail(c *gin.Context) {

@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"os"
 	"os/signal"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -133,15 +134,21 @@ func main() {
 		logger.Error("failed to load whale data from SQLite", "error", err)
 	}
 
-	// Add manually configured whales
-	for _, addr := range cfg.Whale.Addresses {
-		whaleTracker.AddManual(ctx, addr.Address, addr.Alias)
-	}
 	logger.Info("whale tracker initialized", "tracked", whaleTracker.Count())
 
 	// Wire up auto-tracking: when a large trade is detected via REST, auto-track the wallet
-	if cfg.Whale.AutoTrack {
-		largeTradeMon.OnLargeTradeREST = func(proxyWallet string, usdValue float64, question string) {
+	{
+		minAmount := cfg.Whale.MinTradeAmount
+		maxBuyPrice := cfg.Whale.MaxBuyPrice
+		largeTradeMon.OnLargeTradeREST = func(proxyWallet string, usdValue float64, price float64, side string, question string) {
+			// Filter: single trade amount must >= min_trade_amount
+			if minAmount > 0 && usdValue < minAmount {
+				return
+			}
+			// Filter: only auto-track buys with price <= max_buy_price
+			if maxBuyPrice > 0 && (strings.ToUpper(side) != "BUY" || price > maxBuyPrice) {
+				return
+			}
 			if isNew := whaleTracker.AddAuto(ctx, proxyWallet, usdValue); isNew {
 				reason := fmt.Sprintf("$%.0f 大额交易于 %s", usdValue, question)
 				logger.Info("auto-tracking new whale", "address", proxyWallet, "reason", reason)
@@ -156,6 +163,7 @@ func main() {
 
 	// 9. Whale poller
 	whalePoller := poller.NewWhalePoller(whaleTracker, tradeStore, cfg.Whale.PollInterval.Duration, alertCh, logger)
+	whalePoller.ProfileLookup = profileClient.Lookup
 
 	// --- Start all goroutines ---
 	var wg sync.WaitGroup
@@ -312,6 +320,7 @@ func main() {
 		broker := api.NewBroker()
 		apiServer := api.NewServer(
 			cfg.API.Addr,
+			cfg.API.AdminTokens,
 			mktStore,
 			tradeStore,
 			alertStore,
@@ -319,6 +328,7 @@ func main() {
 			priceEventStore,
 			settlementStore,
 			whaleTracker,
+			profileClient,
 			priceSpikeMon.TopMovers,
 			broker,
 			logger,

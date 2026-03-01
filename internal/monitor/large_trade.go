@@ -28,7 +28,7 @@ type LargeTrade struct {
 	// Used to notify the whale tracker of the proxy wallet.
 	// Note: WebSocket events don't contain wallet info, so this is
 	// only triggered from REST poller data.
-	OnLargeTradeREST func(proxyWallet string, usdValue float64, question string)
+	OnLargeTradeREST func(proxyWallet string, usdValue float64, price float64, side string, question string)
 
 	// OnTradeStored is called whenever a trade is stored in the database.
 	// Used to push real-time updates to SSE clients.
@@ -238,7 +238,7 @@ func (lt *LargeTrade) ProcessRESTTrade(ctx context.Context, trade types.Trade) {
 
 	// Notify whale tracker
 	if lt.OnLargeTradeREST != nil && trade.ProxyWallet != "" {
-		lt.OnLargeTradeREST(trade.ProxyWallet, usdValue, trade.Title)
+		lt.OnLargeTradeREST(trade.ProxyWallet, usdValue, trade.Price, trade.Side, trade.Title)
 	}
 
 	// Send Telegram alert only for low-probability outcomes (maxPrice filter)

@@ -99,6 +99,12 @@ func (s *WhaleStore) Count(ctx context.Context) (int64, error) {
 	return n, err
 }
 
+// DeleteByAddress deletes a whale by address.
+func (s *WhaleStore) DeleteByAddress(ctx context.Context, address string) error {
+	_, err := s.db.ExecContext(ctx, `DELETE FROM whales WHERE address = ?`, address)
+	return err
+}
+
 // DeleteLowestVolume deletes the auto-tracked whale with the lowest volume.
 func (s *WhaleStore) DeleteLowestVolume(ctx context.Context) error {
 	_, err := s.db.ExecContext(ctx, `

@@ -1,0 +1,557 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PolyScan — 巨鲸管理</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+:root{--bg:#0d1117;--bg2:#161b22;--bg3:#1c2128;--border:#21262d;--border2:#30363d;--text:#c9d1d9;--text2:#8b949e;--text3:#484f58;--white:#e6edf3;--blue:#58a6ff;--green:#3fb950;--red:#f85149;--purple:#a78bfa}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:var(--bg);color:var(--text);height:100vh;overflow:hidden;display:flex;flex-direction:column}
+a{color:var(--blue);text-decoration:none}a:hover{text-decoration:underline}
+::-webkit-scrollbar{width:6px}
+::-webkit-scrollbar-track{background:transparent}
+::-webkit-scrollbar-thumb{background:var(--border2);border-radius:3px}
+
+/* Topbar */
+.topbar{display:flex;align-items:center;gap:12px;padding:8px 20px;background:var(--bg2);border-bottom:1px solid var(--border2);flex-shrink:0;z-index:10}
+.topbar h1{font-size:16px;color:var(--white)}
+.topbar .actions{margin-left:auto;display:flex;gap:8px;align-items:center}
+.topbar .back{font-size:12px;color:var(--text2)}
+.topbar .back:hover{color:var(--blue)}
+.btn-topbar{padding:4px 12px;border-radius:6px;border:1px solid var(--border2);background:transparent;color:var(--text2);font-size:11px;cursor:pointer;transition:all .15s}
+.btn-topbar:hover{border-color:var(--blue);color:var(--blue)}
+.btn-topbar.active{border-color:var(--blue);color:var(--blue);background:rgba(88,166,255,.08)}
+
+/* Whale bubble bar */
+.bubble-bar{background:var(--bg2);border-bottom:1px solid var(--border2);padding:12px 20px;flex-shrink:0;overflow:hidden}
+.bubble-row{display:flex;gap:10px;overflow-x:auto;padding-bottom:4px;scrollbar-width:thin}
+.bubble-row::-webkit-scrollbar{height:4px}
+.bubble-row::-webkit-scrollbar-thumb{background:var(--border2);border-radius:2px}
+
+.bubble{display:flex;align-items:center;gap:8px;padding:8px 14px;border-radius:20px;border:1px solid var(--border2);background:var(--bg3);cursor:pointer;white-space:nowrap;transition:all .15s;flex-shrink:0;user-select:none}
+.bubble:hover{border-color:var(--blue);background:rgba(88,166,255,.06)}
+.bubble.active{border-color:var(--blue);background:rgba(88,166,255,.1);box-shadow:0 0 0 1px var(--blue)}
+.bubble .b-avatar{width:28px;height:28px;border-radius:50%;background:linear-gradient(135deg,#1a2332,#243044);display:flex;align-items:center;justify-content:center;font-size:13px;border:1px solid var(--border2);flex-shrink:0}
+.bubble .b-info{display:flex;flex-direction:column;gap:1px}
+.bubble .b-name{font-size:12px;font-weight:600;color:var(--white);max-width:140px;overflow:hidden;text-overflow:ellipsis}
+.bubble .b-meta{font-size:10px;color:var(--text3);display:flex;gap:6px;align-items:center}
+.bubble .b-vol{color:var(--green)}
+.bubble .b-time{color:var(--text3)}
+.bubble .b-del{display:none;margin-left:2px;font-size:12px;color:var(--red);cursor:pointer;padding:0 2px;opacity:.6;line-height:1}
+.bubble .b-del:hover{opacity:1}
+.bubble:hover .b-del{display:inline}
+.bubble.all-bubble{border-color:var(--border2);background:var(--bg2)}
+.bubble.all-bubble .b-name{color:var(--blue)}
+.bubble.all-bubble.active{border-color:var(--blue);background:rgba(88,166,255,.08)}
+
+/* Add whale inline */
+.bubble.add-bubble{border-style:dashed;border-color:var(--border2);cursor:pointer}
+.bubble.add-bubble:hover{border-color:var(--green);background:rgba(35,134,54,.06)}
+.bubble.add-bubble .b-name{color:var(--text2);font-weight:400}
+
+/* Add panel overlay */
+.add-panel{display:none;position:fixed;top:0;left:0;right:0;bottom:0;z-index:50;background:rgba(0,0,0,.5);align-items:center;justify-content:center}
+.add-panel.open{display:flex}
+.add-card{background:var(--bg2);border:1px solid var(--border2);border-radius:14px;padding:24px;width:440px;max-width:90vw}
+.add-card h3{font-size:15px;color:var(--white);margin-bottom:16px;display:flex;align-items:center;gap:8px}
+.add-card .close{margin-left:auto;cursor:pointer;color:var(--text3);font-size:16px;padding:2px 6px;border-radius:4px}
+.add-card .close:hover{color:var(--white);background:rgba(255,255,255,.06)}
+.field-row{display:flex;gap:8px;align-items:center;margin-bottom:10px}
+.field-row:last-child{margin-bottom:0}
+.field-row label{font-size:12px;color:var(--text2);white-space:nowrap;min-width:72px}
+.field-row input{flex:1;padding:8px 12px;border-radius:8px;border:1px solid var(--border2);background:var(--bg);color:var(--text);font-size:13px;outline:none;transition:border-color .15s}
+.field-row input:focus{border-color:var(--blue)}
+.field-row input::placeholder{color:var(--text3)}
+.btn{padding:7px 16px;border-radius:8px;border:none;font-size:12px;cursor:pointer;font-weight:500;transition:all .15s}
+.btn:active{transform:scale(.97)}
+.btn-primary{background:#238636;color:#fff}
+.btn-primary:hover{background:#2ea043}
+.btn-primary:disabled{opacity:.5;cursor:not-allowed}
+
+/* Token bar in topbar */
+.token-group{display:flex;align-items:center;gap:4px}
+.token-group input{width:140px;padding:4px 8px;border-radius:5px;border:1px solid var(--border2);background:var(--bg);color:var(--text);font-size:11px;outline:none}
+.token-group input:focus{border-color:var(--blue)}
+.token-group .badge{font-size:10px;padding:2px 6px;border-radius:8px}
+.token-group .badge.ok{background:rgba(63,185,80,.12);color:var(--green)}
+.token-group .badge.no{background:rgba(248,81,73,.12);color:var(--red)}
+
+/* Trade list */
+.trade-area{flex:1;overflow:hidden;display:flex;flex-direction:column}
+.trade-toolbar{display:flex;align-items:center;gap:10px;padding:10px 20px;border-bottom:1px solid var(--border);flex-shrink:0;background:var(--bg2)}
+.trade-toolbar h2{font-size:14px;color:var(--white);flex:1}
+.filter-tag{font-size:11px;padding:4px 10px;border-radius:6px;background:rgba(136,98,255,.1);color:var(--purple);display:inline-flex;align-items:center;gap:4px}
+.filter-tag .x{cursor:pointer;opacity:.6;margin-left:2px}
+.filter-tag .x:hover{opacity:1}
+
+.trade-scroll{flex:1;overflow-y:auto;padding:8px 16px}
+
+/* Card-style trade row */
+.trade-card{display:flex;align-items:stretch;background:var(--bg2);border:1px solid var(--border);border-radius:10px;margin-bottom:6px;overflow:hidden;transition:border-color .15s,background .15s}
+.trade-card:hover{border-color:var(--border2);background:var(--bg3)}
+
+/* Colored left accent */
+.tc-accent{width:4px;flex-shrink:0;border-radius:4px 0 0 4px}
+.tc-accent.buy{background:var(--green)}
+.tc-accent.sell{background:var(--red)}
+
+/* Main content area */
+.tc-body{flex:1;display:flex;align-items:center;padding:12px 16px;gap:14px;min-width:0}
+
+/* Side badge */
+.tc-side{width:42px;height:42px;border-radius:10px;display:flex;flex-direction:column;align-items:center;justify-content:center;flex-shrink:0;font-weight:700;font-size:12px;line-height:1.1;gap:1px}
+.tc-side.buy{background:rgba(63,185,80,.1);color:var(--green)}
+.tc-side.sell{background:rgba(248,81,73,.1);color:var(--red)}
+.tc-side-icon{font-size:14px}
+
+/* Info block: market (primary) + name (secondary) */
+.tc-info{flex:1;min-width:0}
+.tc-market{font-size:13px;font-weight:600;color:var(--white);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-bottom:3px}
+.tc-market a{color:inherit;text-decoration:none}.tc-market a:hover{color:var(--blue)}
+.tc-bottom{display:flex;align-items:center;gap:8px}
+.tc-name{font-size:11px;color:var(--text2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.tc-name a{color:var(--text2);text-decoration:none}.tc-name a:hover{color:var(--blue)}
+
+/* Outcome pill */
+.tc-outcome{display:inline-flex;align-items:center;padding:2px 8px;border-radius:4px;font-size:11px;font-weight:600;flex-shrink:0}
+.tc-outcome.yes{background:rgba(63,185,80,.12);color:var(--green)}
+.tc-outcome.no{background:rgba(248,81,73,.12);color:var(--red)}
+
+/* Right: amount + meta */
+.tc-right{display:flex;flex-direction:column;align-items:flex-end;flex-shrink:0;gap:3px;min-width:100px}
+.tc-amount{font-size:16px;font-weight:700;color:var(--white);letter-spacing:-.3px}
+.tc-meta{display:flex;align-items:center;gap:8px;font-size:11px;color:var(--text3)}
+.tc-price{color:var(--text2)}
+
+/* Empty & loading */
+.empty-state{text-align:center;padding:60px 20px}
+.empty-icon{font-size:48px;margin-bottom:10px;opacity:.4}
+.empty-title{font-size:14px;color:var(--text2)}
+.empty-sub{font-size:12px;color:var(--text3);margin-top:4px}
+.loading-center{text-align:center;padding:40px}
+.spinner{display:inline-block;width:18px;height:18px;border:2px solid var(--border);border-top-color:var(--blue);border-radius:50%;animation:spin .5s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+
+/* Toast */
+.msg-wrap{position:fixed;top:50px;right:16px;z-index:200;display:flex;flex-direction:column;gap:6px;pointer-events:none}
+.msg{font-size:12px;padding:8px 14px;border-radius:8px;box-shadow:0 4px 16px rgba(0,0,0,.4);animation:slideIn .2s ease;max-width:320px;pointer-events:auto}
+.msg.ok{background:#0d2818;color:var(--green);border:1px solid rgba(63,185,80,.3)}
+.msg.err{background:#2d1214;color:var(--red);border:1px solid rgba(248,81,73,.3)}
+@keyframes slideIn{from{opacity:0;transform:translateX(16px)}to{opacity:1;transform:translateX(0)}}
+
+/* Responsive */
+@media(max-width:640px){
+  .trade-scroll{padding:6px 10px}
+  .tc-body{padding:10px 12px;gap:10px}
+  .tc-side{width:36px;height:36px;font-size:11px}
+  .tc-amount{font-size:14px}
+  .tc-meta{gap:6px}
+  .bubble{padding:6px 10px;gap:6px}
+  .bubble .b-avatar{width:24px;height:24px;font-size:11px}
+  .token-group input{width:100px}
+}
+</style>
+</head>
+<body>
+
+<!-- Topbar -->
+<div class="topbar">
+  <h1>🐋 巨鲸管理</h1>
+  <div class="actions">
+    <div class="token-group">
+      <span>🔑</span>
+      <input type="password" id="admin-token" placeholder="Token" />
+      <span class="badge no" id="token-badge">未设置</span>
+      <button class="btn-topbar" onclick="saveToken()">保存</button>
+    </div>
+    <a href="/" class="back">← Dashboard</a>
+  </div>
+</div>
+
+<!-- Whale bubbles -->
+<div class="bubble-bar">
+  <div class="bubble-row" id="bubble-row">
+    <!-- rendered by JS -->
+  </div>
+</div>
+
+<!-- Trade list -->
+<div class="trade-area">
+  <div class="trade-toolbar">
+    <h2 id="trade-title">📊 最近交易</h2>
+    <div id="filter-tag" style="display:none"></div>
+  </div>
+  <div class="trade-scroll" id="trade-scroll"></div>
+</div>
+
+<!-- Add whale modal -->
+<div class="add-panel" id="add-panel" onclick="if(event.target===this)closeAddPanel()">
+  <div class="add-card">
+    <h3>➕ 添加鲸鱼 <span class="close" onclick="closeAddPanel()">✕</span></h3>
+    <div class="field-row">
+      <label>钱包地址</label>
+      <input type="text" id="add-addr" placeholder="0x..." spellcheck="false" />
+    </div>
+    <div class="field-row">
+      <label>别名</label>
+      <input type="text" id="add-alias" placeholder="可选" />
+      <button class="btn btn-primary" id="add-btn" onclick="addWhale()">添加</button>
+    </div>
+  </div>
+</div>
+
+<div class="msg-wrap" id="msg-wrap"></div>
+
+<script>
+const API = '';
+let allWhales = [];
+let selectedWallet = null;
+let trades = [];
+let tradeLoading = false;
+let tradeHasMore = true;
+let whaleLastTrade = {}; // address -> timestamp
+
+// ============================================================
+// Token
+// ============================================================
+function getToken() { return localStorage.getItem('polyscan_admin_token') || ''; }
+function saveToken() {
+  const v = document.getElementById('admin-token').value.trim();
+  if (v) { localStorage.setItem('polyscan_admin_token', v); toast('Token 已保存', true); }
+  else { localStorage.removeItem('polyscan_admin_token'); toast('Token 已清除', true); }
+  updateBadge();
+}
+function updateBadge() {
+  const el = document.getElementById('token-badge');
+  if (getToken()) { el.textContent = '✓'; el.className = 'badge ok'; }
+  else { el.textContent = '未设置'; el.className = 'badge no'; }
+}
+(function(){
+  const saved = getToken();
+  if (saved) document.getElementById('admin-token').value = saved;
+  updateBadge();
+})();
+
+// ============================================================
+// Toast
+// ============================================================
+function toast(text, ok) {
+  const el = document.createElement('div');
+  el.className = 'msg ' + (ok ? 'ok' : 'err');
+  el.textContent = text;
+  document.getElementById('msg-wrap').appendChild(el);
+  setTimeout(() => { el.style.opacity = '0'; el.style.transition = 'opacity .3s'; setTimeout(() => el.remove(), 300); }, 3500);
+}
+
+// ============================================================
+// Add panel
+// ============================================================
+function openAddPanel() { document.getElementById('add-panel').classList.add('open'); document.getElementById('add-addr').focus(); }
+function closeAddPanel() { document.getElementById('add-panel').classList.remove('open'); }
+
+// ============================================================
+// Load whales & compute sort by last trade time
+// ============================================================
+async function loadWhales() {
+  try {
+    const resp = await fetch(API + '/api/whales');
+    allWhales = (await resp.json()) || [];
+    renderBubbles();
+    // Fetch recent trades to determine last trade time per whale
+    resolveLastTradeTimes();
+  } catch (e) {
+    toast('加载鲸鱼列表失败', false);
+  }
+}
+
+async function resolveLastTradeTimes() {
+  try {
+    const resp = await fetch(API + '/api/whale-trades?limit=200');
+    const tds = (await resp.json()) || [];
+    whaleLastTrade = {};
+    for (const t of tds) {
+      const addr = t.proxy_wallet;
+      if (!whaleLastTrade[addr] || t.timestamp > whaleLastTrade[addr]) {
+        whaleLastTrade[addr] = t.timestamp;
+      }
+      // Also cache profile name
+      if (t.profile_name && !profileNameCache[addr]) {
+        profileNameCache[addr] = t.profile_name;
+      }
+    }
+    // Re-sort and re-render bubbles by last trade time
+    allWhales.sort((a, b) => (whaleLastTrade[b.address] || 0) - (whaleLastTrade[a.address] || 0));
+    renderBubbles();
+  } catch (e) { /* silent */ }
+}
+
+let profileNameCache = {};
+
+function getWhaleDisplayName(w) {
+  if (w.alias) return w.alias;
+  if (w.profile_name) return w.profile_name;
+  if (profileNameCache[w.address]) return profileNameCache[w.address];
+  return w.address.slice(0, 6) + '…' + w.address.slice(-4);
+}
+
+function renderBubbles() {
+  const el = document.getElementById('bubble-row');
+  let html = '';
+
+  // "All" bubble
+  const allActive = selectedWallet === null ? ' active' : '';
+  html += '<div class="bubble all-bubble' + allActive + '" onclick="selectWhale(null)">'
+    + '<div class="b-avatar">🌐</div>'
+    + '<div class="b-info"><div class="b-name">全部</div>'
+    + '<div class="b-meta">' + allWhales.length + ' 个钱包</div></div></div>';
+
+  // Whale bubbles
+  for (const w of allWhales) {
+    const active = selectedWallet === w.address ? ' active' : '';
+    const name = esc(getWhaleDisplayName(w));
+    const vol = w.total_volume ? fmtUSD(w.total_volume) : '';
+    const lastTs = whaleLastTrade[w.address];
+    const timeStr = lastTs ? relTime(lastTs * 1000) : '';
+
+    html += '<div class="bubble' + active + '" onclick="selectWhale(\'' + w.address + '\')" title="' + w.address + '">'
+      + '<div class="b-avatar">🐋</div>'
+      + '<div class="b-info">'
+      +   '<div class="b-name">' + name + '</div>'
+      +   '<div class="b-meta">'
+      +     (vol ? '<span class="b-vol">' + vol + '</span>' : '')
+      +     (timeStr ? '<span class="b-time">' + timeStr + '</span>' : '')
+      +   '</div>'
+      + '</div>'
+      + '<span class="b-del" onclick="event.stopPropagation();deleteWhale(\'' + w.address + '\')" title="删除">✕</span>'
+      + '</div>';
+  }
+
+  // "+" add bubble
+  html += '<div class="bubble add-bubble" onclick="openAddPanel()">'
+    + '<div class="b-avatar" style="font-size:16px;color:var(--green)">+</div>'
+    + '<div class="b-info"><div class="b-name">添加鲸鱼</div></div></div>';
+
+  el.innerHTML = html;
+}
+
+// ============================================================
+// Select whale
+// ============================================================
+function selectWhale(address) {
+  selectedWallet = address;
+  renderBubbles();
+  updateTradeTitle();
+  trades = [];
+  tradeHasMore = true;
+  loadTrades();
+}
+
+function updateTradeTitle() {
+  const titleEl = document.getElementById('trade-title');
+  const tagEl = document.getElementById('filter-tag');
+  if (selectedWallet) {
+    const w = allWhales.find(x => x.address === selectedWallet);
+    const name = w ? getWhaleDisplayName(w) : selectedWallet.slice(0, 10) + '…';
+    titleEl.textContent = '📊 交易记录';
+    tagEl.style.display = '';
+    tagEl.className = 'filter-tag';
+    tagEl.innerHTML = '🐋 ' + esc(name) + ' <span class="x" onclick="selectWhale(null)">✕</span>';
+  } else {
+    titleEl.textContent = '📊 最近交易';
+    tagEl.style.display = 'none';
+  }
+}
+
+// ============================================================
+// Load trades
+// ============================================================
+async function loadTrades(append) {
+  if (tradeLoading) return;
+  tradeLoading = true;
+  const container = document.getElementById('trade-scroll');
+
+  if (!append) {
+    container.innerHTML = '<div class="loading-center"><span class="spinner"></span></div>';
+  }
+
+  let url = API + '/api/whale-trades?limit=50';
+  if (selectedWallet) url += '&wallet=' + encodeURIComponent(selectedWallet);
+  if (append && trades.length > 0) {
+    url += '&before=' + trades[trades.length - 1].timestamp;
+  }
+
+  try {
+    const resp = await fetch(url);
+    const newTrades = (await resp.json()) || [];
+    if (append) { trades = trades.concat(newTrades); } else { trades = newTrades; }
+    tradeHasMore = newTrades.length >= 50;
+    renderTrades();
+  } catch (e) {
+    if (!append) {
+      container.innerHTML = '<div class="empty-state"><div class="empty-icon">⚠️</div><div class="empty-title">加载失败</div></div>';
+    } else { toast('加载更多失败', false); }
+  } finally {
+    tradeLoading = false;
+  }
+}
+
+function renderTrades() {
+  const container = document.getElementById('trade-scroll');
+  if (trades.length === 0) {
+    container.innerHTML = '<div class="empty-state"><div class="empty-icon">📭</div><div class="empty-title">暂无交易记录</div>'
+      + (selectedWallet ? '<div class="empty-sub">该鲸鱼尚无交易数据</div>' : '<div class="empty-sub">追踪鲸鱼后将在此显示交易</div>')
+      + '</div>';
+    return;
+  }
+
+  let html = '';
+  for (const t of trades) {
+    const name = t.profile_name || t.proxy_wallet.slice(0, 6) + '…' + t.proxy_wallet.slice(-4);
+    const isBuy = t.side.toLowerCase() === 'buy';
+    const sideCls = isBuy ? 'buy' : 'sell';
+    const sideLabel = isBuy ? '买入' : '卖出';
+    const sideIcon = isBuy ? '↗' : '↘';
+    const amount = fmtUSD(t.usd_value);
+    const priceCents = (t.price * 100).toFixed(0);
+    const outcome = t.outcome || '';
+    const outCls = outcome.toLowerCase() === 'yes' ? 'yes' : (outcome.toLowerCase() === 'no' ? 'no' : '');
+    const profileUrl = 'https://polymarket.com/profile/' + t.proxy_wallet;
+    const marketUrl = t.event_slug ? 'https://polymarket.com/event/' + t.event_slug : (t.slug ? 'https://polymarket.com/market/' + t.slug : '');
+    const time = relTime(t.timestamp * 1000);
+
+    html += '<div class="trade-card">'
+      + '<div class="tc-accent ' + sideCls + '"></div>'
+      + '<div class="tc-body">'
+      +   '<div class="tc-side ' + sideCls + '"><span class="tc-side-icon">' + sideIcon + '</span>' + sideLabel + '</div>'
+      +   '<div class="tc-info">'
+      +     (t.title ? '<div class="tc-market">' + (marketUrl ? '<a href="' + marketUrl + '" target="_blank">' + esc(t.title) + '</a>' : esc(t.title)) + '</div>' : '')
+      +     '<div class="tc-bottom">'
+      +       '<span class="tc-name"><a href="' + profileUrl + '" target="_blank">' + esc(name) + '</a></span>'
+      +       (outcome ? '<span class="tc-outcome ' + outCls + '">' + esc(outcome) + '</span>' : '')
+      +     '</div>'
+      +   '</div>'
+      +   '<div class="tc-right">'
+      +     '<div class="tc-amount">' + amount + '</div>'
+      +     '<div class="tc-meta"><span class="tc-price">' + priceCents + '¢</span><span>' + time + '</span></div>'
+      +   '</div>'
+      + '</div>'
+      + '</div>';
+  }
+  container.innerHTML = html;
+}
+
+// Infinite scroll
+document.addEventListener('DOMContentLoaded', () => {
+  const el = document.getElementById('trade-scroll');
+  el.addEventListener('scroll', () => {
+    if (!tradeHasMore || tradeLoading) return;
+    if (el.scrollTop + el.clientHeight >= el.scrollHeight - 200) loadTrades(true);
+  }, { passive: true });
+});
+
+// ============================================================
+// Add whale
+// ============================================================
+async function addWhale() {
+  const addrInput = document.getElementById('add-addr');
+  const aliasInput = document.getElementById('add-alias');
+  const btn = document.getElementById('add-btn');
+  const addr = addrInput.value.trim();
+  const alias = aliasInput.value.trim();
+
+  if (!getToken()) { toast('请先设置管理员 Token', false); return; }
+  if (!addr || !addr.startsWith('0x') || addr.length !== 42) {
+    toast('请输入有效地址 (0x, 42 字符)', false); addrInput.focus(); return;
+  }
+
+  btn.disabled = true; btn.textContent = '添加中…';
+  try {
+    const resp = await fetch(API + '/api/whales', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + getToken() },
+      body: JSON.stringify({ address: addr, alias: alias })
+    });
+    const data = await resp.json();
+    if (!resp.ok) { toast(data.error || '添加失败', false); return; }
+    toast('已添加: ' + addr.slice(0, 8) + '…', true);
+    addrInput.value = ''; aliasInput.value = '';
+    closeAddPanel();
+    loadWhales();
+  } catch (e) {
+    toast('请求失败: ' + e.message, false);
+  } finally {
+    btn.disabled = false; btn.textContent = '添加';
+  }
+}
+
+// ============================================================
+// Delete whale
+// ============================================================
+async function deleteWhale(address) {
+  if (!getToken()) { toast('请先设置管理员 Token', false); return; }
+  const w = allWhales.find(x => x.address === address);
+  const name = w ? getWhaleDisplayName(w) : address.slice(0, 10) + '…';
+  if (!confirm('确认删除鲸鱼: ' + name + '?\n\n' + address)) return;
+
+  try {
+    const resp = await fetch(API + '/api/whales/' + address, {
+      method: 'DELETE',
+      headers: { 'Authorization': 'Bearer ' + getToken() }
+    });
+    const data = await resp.json();
+    if (!resp.ok) { toast(data.error || '删除失败', false); return; }
+    toast('已删除: ' + name, true);
+    allWhales = allWhales.filter(x => x.address !== address);
+    if (selectedWallet === address) selectedWallet = null;
+    renderBubbles();
+    updateTradeTitle();
+    trades = []; tradeHasMore = true; loadTrades();
+  } catch (e) {
+    toast('请求失败: ' + e.message, false);
+  }
+}
+
+// ============================================================
+// Keyboard
+// ============================================================
+document.getElementById('admin-token').addEventListener('keydown', e => { if (e.key === 'Enter') saveToken(); });
+document.getElementById('add-addr').addEventListener('keydown', e => {
+  if (e.key === 'Enter') { const a = document.getElementById('add-alias'); if (!a.value.trim()) a.focus(); else addWhale(); }
+});
+document.getElementById('add-alias').addEventListener('keydown', e => { if (e.key === 'Enter') addWhale(); });
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape') closeAddPanel();
+});
+
+// ============================================================
+// Helpers
+// ============================================================
+const _e = document.createElement('div');
+function esc(s) { if (!s) return ''; _e.textContent = s; return _e.innerHTML; }
+function fmtUSD(v) {
+  if (!v) return '$0';
+  if (v >= 1e6) return '$' + (v / 1e6).toFixed(1) + 'M';
+  if (v >= 1e3) return '$' + Math.round(v).toLocaleString();
+  return '$' + v.toFixed(0);
+}
+function relTime(ms) {
+  const diff = (Date.now() - ms) / 1000;
+  if (diff < 60) return '刚刚';
+  if (diff < 3600) return Math.floor(diff / 60) + '分钟前';
+  if (diff < 86400) return Math.floor(diff / 3600) + '小时前';
+  if (diff < 86400 * 30) return Math.floor(diff / 86400) + '天前';
+  return new Date(ms).toLocaleDateString('zh-CN');
+}
+
+// ============================================================
+// Init
+// ============================================================
+loadWhales();
+loadTrades();
+
+// Auto-refresh whale list every 30s to pick up newly auto-tracked whales
+setInterval(loadWhales, 30000);
+</script>
+</body>
+</html>

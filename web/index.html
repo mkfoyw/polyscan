@@ -12,23 +12,53 @@ body {
   background: #0d1117;
   color: #c9d1d9;
 }
+/* Top bar */
+.topbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 16px;
+  background: #161b22;
+  border-bottom: 1px solid #30363d;
+  flex-wrap: wrap;
+}
+.topbar-label {
+  font-size: 12px;
+  color: #8b949e;
+  margin-right: 4px;
+}
+.col-toggle {
+  padding: 4px 10px;
+  border-radius: 12px;
+  border: 1px solid #30363d;
+  background: transparent;
+  color: #8b949e;
+  font-size: 12px;
+  cursor: pointer;
+  transition: all 0.2s;
+  user-select: none;
+}
+.col-toggle:hover { border-color: #58a6ff; color: #58a6ff; }
+.col-toggle.active {
+  background: #1f6feb;
+  border-color: #1f6feb;
+  color: #fff;
+}
+.col-toggle.active:hover { background: #1a5fd4; }
 .dashboard {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
   gap: 16px;
   padding: 16px;
-  max-width: 1800px;
-  margin: 0 auto;
-  height: 100vh;
+  height: calc(100vh - 45px);
   box-sizing: border-box;
 }
 @media (max-width: 1400px) {
   html, body { overflow: auto; }
-  .dashboard { grid-template-columns: repeat(2, 1fr); height: auto; }
+  .dashboard { height: auto; }
   .column { min-height: 60vh; }
 }
 @media (max-width: 768px) {
-  .dashboard { grid-template-columns: 1fr; }
+  .dashboard { grid-template-columns: 1fr !important; }
 }
 .column {
   background: #161b22;
@@ -39,6 +69,7 @@ body {
   overflow: hidden;
   min-height: 0;
 }
+.column.hidden { display: none; }
 .column-header {
   padding: 16px 16px 12px;
   border-bottom: 1px solid #30363d;
@@ -74,7 +105,6 @@ body {
   white-space: nowrap;
   flex-shrink: 0;
   transition: all 0.2s;
-  white-space: nowrap;
 }
 .filter-btn:hover { border-color: #58a6ff; color: #58a6ff; }
 .filter-btn.active {
@@ -86,6 +116,8 @@ body {
   flex: 1;
   overflow-y: auto;
   padding: 0;
+  will-change: transform;
+  contain: layout style;
 }
 .list::-webkit-scrollbar { width: 4px; }
 .list::-webkit-scrollbar-track { background: transparent; }
@@ -96,186 +128,143 @@ body {
   padding: 12px 16px;
   border-bottom: 1px solid #21262d;
   gap: 10px;
-  transition: background 0.15s;
   cursor: pointer;
   text-decoration: none;
   color: inherit;
+  content-visibility: auto;
+  contain-intrinsic-size: auto 60px;
 }
 .item:hover { background: #1c2128; }
 .item-icon {
-  width: 36px;
-  height: 36px;
-  border-radius: 8px;
-  background: #30363d;
-  flex-shrink: 0;
-  overflow: hidden;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 18px;
+  width: 36px; height: 36px; border-radius: 8px; background: #30363d;
+  flex-shrink: 0; overflow: hidden; display: flex; align-items: center;
+  justify-content: center; font-size: 18px;
 }
-.item-icon img {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-}
-.item-body {
-  flex: 1;
-  min-width: 0;
-}
+.item-icon img { width: 100%; height: 100%; object-fit: cover; }
+.item-body { flex: 1; min-width: 0; }
 .item-title {
-  font-size: 13px;
-  color: #e6edf3;
-  line-height: 1.3;
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  line-clamp: 2;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
+  font-size: 13px; color: #e6edf3; line-height: 1.3;
+  display: -webkit-box; -webkit-line-clamp: 2; line-clamp: 2;
+  -webkit-box-orient: vertical; overflow: hidden;
 }
-.item-meta {
-  font-size: 11px;
-  color: #8b949e;
-  margin-top: 3px;
-}
-.item-right {
-  text-align: right;
-  flex-shrink: 0;
-}
-.price-change {
-  font-size: 14px;
-  font-weight: 600;
-  white-space: nowrap;
-}
+.item-meta { font-size: 11px; color: #8b949e; margin-top: 3px; }
+.item-right { text-align: right; flex-shrink: 0; }
+.price-change { font-size: 14px; font-weight: 600; white-space: nowrap; }
 .price-change.positive { color: #3fb950; }
 .price-change.negative { color: #f85149; }
-.price-pct {
-  font-size: 11px;
-  margin-top: 2px;
-}
+.price-pct { font-size: 11px; margin-top: 2px; }
 .price-pct.positive { color: #3fb950; }
 .price-pct.negative { color: #f85149; }
-/* Trade items */
-.trade-header {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  flex-wrap: wrap;
-}
+.trade-header { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
 .trade-user {
-  font-size: 13px;
-  font-weight: 500;
-  color: #58a6ff;
-  max-width: 160px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  font-size: 13px; font-weight: 500; color: #58a6ff;
+  max-width: 160px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
-.trade-user.no-link {
-  color: #8b949e;
-  cursor: default;
-  text-decoration: none;
-}
-.trade-badge {
-  font-size: 11px;
-  font-weight: 600;
-  padding: 1px 6px;
-  border-radius: 4px;
-}
+.trade-user.no-link { color: #8b949e; cursor: default; text-decoration: none; }
+.trade-badge { font-size: 11px; font-weight: 600; padding: 1px 6px; border-radius: 4px; }
 .trade-badge.buy { background: rgba(63,185,80,0.15); color: #3fb950; }
 .trade-badge.sell { background: rgba(248,81,73,0.15); color: #f85149; }
-.trade-amount {
-  font-size: 13px;
-  font-weight: 600;
-  color: #e6edf3;
-}
-.trade-outcome {
-  font-size: 12px;
-  font-weight: 500;
-  margin-left: 4px;
-}
+.trade-amount { font-size: 13px; font-weight: 600; color: #e6edf3; }
+.trade-outcome { font-size: 12px; font-weight: 500; margin-left: 4px; }
 .trade-outcome.yes { color: #3fb950; }
 .trade-outcome.no { color: #f85149; }
-.trade-price {
-  font-size: 12px;
-  color: #8b949e;
-}
+.trade-price { font-size: 12px; color: #8b949e; }
 .trade-question {
-  font-size: 12px;
-  color: #8b949e;
-  margin-top: 2px;
-  display: -webkit-box;
-  -webkit-line-clamp: 1;
-  line-clamp: 1;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
+  font-size: 12px; color: #8b949e; margin-top: 2px;
+  display: -webkit-box; -webkit-line-clamp: 1; line-clamp: 1;
+  -webkit-box-orient: vertical; overflow: hidden;
 }
-.trade-time {
-  font-size: 11px;
-  color: #6e7681;
-  margin-top: 2px;
-}
-/* Settlement badge */
+.trade-question a { color: #8b949e; text-decoration: none; }
+.trade-question a:hover { color: #58a6ff; }
+.trade-time { font-size: 11px; color: #6e7681; margin-top: 2px; }
 .settlement-outcome {
-  font-size: 12px;
-  font-weight: 600;
-  padding: 2px 8px;
-  border-radius: 4px;
-  white-space: nowrap;
+  font-size: 12px; font-weight: 600; padding: 2px 8px; border-radius: 4px; white-space: nowrap;
 }
 .settlement-outcome.yes { background: rgba(63,185,80,0.15); color: #3fb950; }
 .settlement-outcome.no { background: rgba(248,81,73,0.15); color: #f85149; }
-/* Avatar */
 .avatar {
-  width: 36px;
-  height: 36px;
-  border-radius: 50%;
-  background: #30363d;
-  flex-shrink: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 14px;
-  color: #8b949e;
-  overflow: hidden;
+  width: 36px; height: 36px; border-radius: 50%; background: #30363d;
+  flex-shrink: 0; display: flex; align-items: center; justify-content: center;
+  font-size: 14px; color: #8b949e; overflow: hidden;
 }
-.avatar img {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-}
-.empty-state {
-  padding: 40px 16px;
-  text-align: center;
-  color: #6e7681;
-  font-size: 13px;
-}
-/* Settlement icon overlay */
-.item-icon-wrap {
-  position: relative;
-}
+.avatar img { width: 100%; height: 100%; object-fit: cover; }
+.empty-state { padding: 40px 16px; text-align: center; color: #6e7681; font-size: 13px; }
+.item-icon-wrap { position: relative; }
 .icon-check {
-  position: absolute;
-  bottom: -2px;
-  right: -2px;
-  width: 16px;
-  height: 16px;
-  border-radius: 50%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 9px;
-  color: #fff;
+  position: absolute; bottom: -2px; right: -2px; width: 16px; height: 16px;
+  border-radius: 50%; display: flex; align-items: center; justify-content: center;
+  font-size: 9px; color: #fff;
 }
 .icon-check.yes { background: #3fb950; }
 .icon-check.no { background: #f85149; }
+.column.drag-over { border: 2px dashed #58a6ff; }
+
+/* Whale add modal */
+.whale-modal-overlay{display:none;position:fixed;top:0;left:0;right:0;bottom:0;z-index:100;background:rgba(0,0,0,.55);align-items:center;justify-content:center}
+.whale-modal-overlay.open{display:flex}
+.whale-modal{background:#161b22;border:1px solid #30363d;border-radius:14px;padding:24px;width:420px;max-width:90vw;box-shadow:0 16px 48px rgba(0,0,0,.4)}
+.whale-modal h3{font-size:15px;color:#e6edf3;margin-bottom:16px;display:flex;align-items:center;gap:8px}
+.whale-modal .wm-close{margin-left:auto;cursor:pointer;color:#484f58;font-size:16px;padding:2px 6px;border-radius:4px}
+.whale-modal .wm-close:hover{color:#e6edf3;background:rgba(255,255,255,.06)}
+.wm-row{display:flex;gap:8px;align-items:center;margin-bottom:10px}
+.wm-row:last-child{margin-bottom:0}
+.wm-row label{font-size:12px;color:#8b949e;white-space:nowrap;min-width:52px}
+.wm-row input{flex:1;padding:8px 12px;border-radius:8px;border:1px solid #30363d;background:#0d1117;color:#c9d1d9;font-size:13px;outline:none;transition:border-color .15s}
+.wm-row input:focus{border-color:#58a6ff}
+.wm-row input::placeholder{color:#484f58}
+.wm-btn{padding:7px 16px;border-radius:8px;border:none;font-size:12px;cursor:pointer;font-weight:500;background:#238636;color:#fff;transition:all .15s}
+.wm-btn:hover{background:#2ea043}
+.wm-btn:disabled{opacity:.5;cursor:not-allowed}
+.wm-btn:active{transform:scale(.97)}
+.wm-toast-wrap{position:fixed;top:50px;right:16px;z-index:200;display:flex;flex-direction:column;gap:6px;pointer-events:none}
+.wm-toast{font-size:12px;padding:8px 14px;border-radius:8px;box-shadow:0 4px 16px rgba(0,0,0,.4);animation:wmSlide .2s ease;max-width:320px;pointer-events:auto}
+.wm-toast.ok{background:#0d2818;color:#3fb950;border:1px solid rgba(63,185,80,.3)}
+.wm-toast.err{background:#2d1214;color:#f85149;border:1px solid rgba(248,81,73,.3)}
+@keyframes wmSlide{from{opacity:0;transform:translateX(16px)}to{opacity:1;transform:translateX(0)}}
 </style>
 </head>
 <body>
-<div class="dashboard">
 
-  <!-- Column 1: Price Movements -->
-  <div class="column">
+<!-- Top bar: column selector -->
+<div class="topbar">
+  <span class="topbar-label">显示栏目:</span>
+  <button class="col-toggle active" data-col="price-moves">📊 价格波动</button>
+  <button class="col-toggle active" data-col="trades">💰 大额交易</button>
+  <button class="col-toggle active" data-col="whale-trades">🐋 巨鲸交易</button>
+  <button class="col-toggle active" data-col="new-markets">🏛 新市场</button>
+  <button class="col-toggle" data-col="settlements">✅ 最新结算</button>
+  <span class="topbar-label" style="margin-left:auto;font-size:11px;color:#6e7681">拖拽栏目可调整顺序</span>
+  <button onclick="openWhaleModal()" style="margin-left:8px;font-size:12px;color:#3fb950;background:transparent;border:1px dashed #30363d;padding:4px 10px;border-radius:12px;cursor:pointer;white-space:nowrap" onmouseover="this.style.borderColor='#3fb950'" onmouseout="this.style.borderColor='#30363d'">➕ 添加巨鲸</button>
+  <a href="/whales" style="margin-left:4px;font-size:12px;color:#58a6ff;text-decoration:none;padding:4px 10px;border:1px solid #30363d;border-radius:12px;white-space:nowrap">🐋 巨鲸管理</a>
+</div>
+
+<!-- Add whale modal -->
+<div class="whale-modal-overlay" id="whale-modal" onclick="if(event.target===this)closeWhaleModal()">
+  <div class="whale-modal">
+    <h3>🐋 快速添加巨鲸 <span class="wm-close" onclick="closeWhaleModal()">✕</span></h3>
+    <div class="wm-row">
+      <label>地址</label>
+      <input type="text" id="wm-addr" placeholder="0x..." spellcheck="false" />
+    </div>
+    <div class="wm-row">
+      <label>别名</label>
+      <input type="text" id="wm-alias" placeholder="可选" />
+    </div>
+    <div class="wm-row">
+      <label>Token</label>
+      <input type="password" id="wm-token" placeholder="管理员 Token" />
+    </div>
+    <div class="wm-row" style="justify-content:flex-end">
+      <button class="wm-btn" id="wm-submit" onclick="submitWhale()">添加</button>
+    </div>
+  </div>
+</div>
+<div class="wm-toast-wrap" id="wm-toast-wrap"></div>
+
+<div class="dashboard" id="dashboard">
+
+  <!-- Column: Price Movements -->
+  <div class="column" id="col-price-moves" draggable="true">
     <div class="column-header">
       <h2>📊 价格波动</h2>
       <div class="subtitle">显示 5m 内价格波动最大的市场</div>
@@ -291,8 +280,8 @@ body {
     <div class="list" id="price-list"></div>
   </div>
 
-  <!-- Column 2: Large Trades -->
-  <div class="column">
+  <!-- Column: Large Trades -->
+  <div class="column" id="col-trades" draggable="true">
     <div class="column-header">
       <h2>💰 大额交易</h2>
       <div class="subtitle">实时追踪大额订单</div>
@@ -314,8 +303,17 @@ body {
     <div class="list" id="trade-list"></div>
   </div>
 
-  <!-- Column 3: New Markets -->
-  <div class="column">
+  <!-- Column: Whale Trades -->
+  <div class="column" id="col-whale-trades" draggable="true">
+    <div class="column-header">
+      <h2>🐋 巨鲸交易</h2>
+      <div class="subtitle">追踪已标记鲸鱼钱包的交易</div>
+    </div>
+    <div class="list" id="whale-trade-list"></div>
+  </div>
+
+  <!-- Column: New Markets -->
+  <div class="column" id="col-new-markets" draggable="true">
     <div class="column-header">
       <h2>🏛 新市场</h2>
       <div class="subtitle">最新创建的预测市场</div>
@@ -336,8 +334,8 @@ body {
     <div class="list" id="market-list"></div>
   </div>
 
-  <!-- Column 4: Recent Settlements -->
-  <div class="column">
+  <!-- Column: Recent Settlements -->
+  <div class="column" id="col-settlements" draggable="true">
     <div class="column-header">
       <h2>✅ 最新结算</h2>
       <div class="subtitle">最新结算的预测市场</div>
@@ -348,30 +346,140 @@ body {
 </div>
 
 <script>
-const API = '';  // same origin
+const API = '';
 const PAGE_SIZE = 30;
 
-// --- State ---
+// ============================================================
+// Column visibility & order (persisted to localStorage)
+// ============================================================
+const ALL_COLUMNS = ['price-moves', 'trades', 'whale-trades', 'new-markets', 'settlements'];
+const DEFAULT_VISIBLE = ['price-moves', 'trades', 'whale-trades', 'new-markets'];
+const DEFAULT_ORDER   = ['price-moves', 'trades', 'whale-trades', 'new-markets', 'settlements'];
+
+function loadColumnConfig() {
+  try {
+    const raw = localStorage.getItem('polyscan_columns');
+    if (raw) {
+      const cfg = JSON.parse(raw);
+      if (Array.isArray(cfg.visible) && Array.isArray(cfg.order)) return cfg;
+    }
+  } catch (e) {}
+  return { visible: [...DEFAULT_VISIBLE], order: [...DEFAULT_ORDER] };
+}
+
+function saveColumnConfig() {
+  localStorage.setItem('polyscan_columns', JSON.stringify({ visible: visibleCols, order: columnOrder }));
+}
+
+let { visible: visibleCols, order: columnOrder } = loadColumnConfig();
+
+// Ensure new columns are in order list
+for (const c of ALL_COLUMNS) {
+  if (!columnOrder.includes(c)) columnOrder.push(c);
+}
+
+function applyColumnLayout() {
+  const dashboard = document.getElementById('dashboard');
+  const count = visibleCols.length || 1;
+  dashboard.style.gridTemplateColumns = `repeat(${count}, 1fr)`;
+
+  // Reorder DOM nodes, show/hide
+  for (const colId of columnOrder) {
+    const el = document.getElementById('col-' + colId);
+    if (!el) continue;
+    dashboard.appendChild(el);
+    if (visibleCols.includes(colId)) {
+      el.classList.remove('hidden');
+    } else {
+      el.classList.add('hidden');
+    }
+  }
+
+  // Sync toggle buttons
+  document.querySelectorAll('.col-toggle').forEach(btn => {
+    btn.classList.toggle('active', visibleCols.includes(btn.dataset.col));
+  });
+
+  saveColumnConfig();
+}
+
+// Toggle clicks
+document.querySelector('.topbar').addEventListener('click', e => {
+  const btn = e.target.closest('.col-toggle');
+  if (!btn) return;
+  const col = btn.dataset.col;
+  const idx = visibleCols.indexOf(col);
+  if (idx >= 0) {
+    if (visibleCols.length <= 1) return;
+    visibleCols.splice(idx, 1);
+  } else {
+    visibleCols.push(col);
+  }
+  applyColumnLayout();
+  if (col === 'whale-trades' && visibleCols.includes(col)) fetchWhaleTrades();
+});
+
+// --- Drag & Drop reorder ---
+let dragSrcId = null;
+
+document.querySelectorAll('.column[draggable]').forEach(col => {
+  col.addEventListener('dragstart', e => {
+    dragSrcId = col.id.replace('col-', '');
+    e.dataTransfer.effectAllowed = 'move';
+    col.style.opacity = '0.5';
+  });
+  col.addEventListener('dragend', () => {
+    col.style.opacity = '1';
+    document.querySelectorAll('.column').forEach(c => c.classList.remove('drag-over'));
+  });
+  col.addEventListener('dragover', e => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    col.classList.add('drag-over');
+  });
+  col.addEventListener('dragleave', () => col.classList.remove('drag-over'));
+  col.addEventListener('drop', e => {
+    e.preventDefault();
+    col.classList.remove('drag-over');
+    const targetId = col.id.replace('col-', '');
+    if (dragSrcId && dragSrcId !== targetId) {
+      const srcIdx = columnOrder.indexOf(dragSrcId);
+      const tgtIdx = columnOrder.indexOf(targetId);
+      columnOrder.splice(srcIdx, 1);
+      columnOrder.splice(tgtIdx, 0, dragSrcId);
+      applyColumnLayout();
+    }
+    dragSrcId = null;
+  });
+});
+
+applyColumnLayout();
+
+// ============================================================
+// State
+// ============================================================
 let priceWindow = '5m';
-let tradeMinUSD = 1000;
-let tradeMaxPrice = 0; // 0 = no price filter
+let tradeMinUSD = 5000;
+let tradeMaxPrice = 0;
 let marketCategory = 'all';
 
-// Pagination cursors and flags per column
 const paging = {
-  trades:      { loading: false, done: false, cursor: null },
-  markets:     { loading: false, done: false, cursor: null },
-  settlements: { loading: false, done: false, cursor: null },
+  trades:       { loading: false, done: false, cursor: null },
+  whaleTrades:  { loading: false, done: false, cursor: null },
+  markets:      { loading: false, done: false, cursor: null },
+  settlements:  { loading: false, done: false, cursor: null },
 };
 
-// --- Filter handlers ---
+// ============================================================
+// Filter handlers
+// ============================================================
 document.getElementById('price-filters').addEventListener('click', e => {
   const btn = e.target.closest('.filter-btn');
   if (!btn) return;
   document.querySelectorAll('#price-filters .filter-btn').forEach(b => b.classList.remove('active'));
   btn.classList.add('active');
   priceWindow = btn.dataset.window;
-  document.querySelector('.column-header .subtitle').textContent =
+  document.querySelector('#col-price-moves .subtitle').textContent =
     `显示 ${btn.textContent} 内价格波动最大的市场`;
   fetchPriceMoves();
 });
@@ -413,25 +521,34 @@ function resetPaging(key) {
   paging[key] = { loading: false, done: false, cursor: null };
 }
 
-// --- Infinite scroll ---
+// ============================================================
+// Infinite scroll
+// ============================================================
 function setupInfiniteScroll(listId, pagingKey, fetchFn) {
   const list = document.getElementById(listId);
+  let ticking = false;
   list.addEventListener('scroll', () => {
-    if (paging[pagingKey].loading || paging[pagingKey].done) return;
-    // Trigger when within 100px of the bottom
-    if (list.scrollTop + list.clientHeight >= list.scrollHeight - 100) {
-      fetchFn(true);
-    }
-  });
+    if (ticking) return;
+    ticking = true;
+    requestAnimationFrame(() => {
+      ticking = false;
+      if (paging[pagingKey].loading || paging[pagingKey].done) return;
+      if (list.scrollTop + list.clientHeight >= list.scrollHeight - 100) {
+        fetchFn(true);
+      }
+    });
+  }, { passive: true });
 }
 
 setupInfiniteScroll('trade-list', 'trades', fetchTrades);
+setupInfiniteScroll('whale-trade-list', 'whaleTrades', fetchWhaleTrades);
 setupInfiniteScroll('market-list', 'markets', fetchNewMarkets);
 setupInfiniteScroll('settlement-list', 'settlements', fetchSettlements);
 
-// --- Fetch functions ---
+// ============================================================
+// Fetch functions
+// ============================================================
 async function fetchPriceMoves() {
-  // Price moves are always a full refresh (top movers change frequently)
   try {
     const resp = await fetch(`${API}/api/price-moves?window=${priceWindow}&limit=50`);
     const data = await resp.json();
@@ -447,24 +564,35 @@ async function fetchTrades(loadMore) {
   p.loading = true;
   try {
     let url = `${API}/api/trades?min_usd=${tradeMinUSD}&limit=${PAGE_SIZE}${tradeMaxPrice > 0 ? '&max_price=' + tradeMaxPrice : ''}`;
-    if (loadMore && p.cursor) {
-      url += `&before=${p.cursor}`;
-    }
+    if (loadMore && p.cursor) url += `&before=${p.cursor}`;
     const resp = await fetch(url);
     const data = await resp.json();
     const items = data || [];
     if (items.length < PAGE_SIZE) p.done = true;
-    if (items.length > 0) {
-      // Update cursor to the oldest item's timestamp
-      p.cursor = items[items.length - 1].timestamp;
-    }
-    if (loadMore) {
-      appendTrades(items);
-    } else {
-      renderTrades(items);
-    }
+    if (items.length > 0) p.cursor = items[items.length - 1].timestamp;
+    if (loadMore) appendTrades(items); else renderTrades(items);
   } catch (e) {
     console.error('fetchTrades:', e);
+  } finally {
+    p.loading = false;
+  }
+}
+
+async function fetchWhaleTrades(loadMore) {
+  const p = paging.whaleTrades;
+  if (p.loading) return;
+  p.loading = true;
+  try {
+    let url = `${API}/api/whale-trades?limit=${PAGE_SIZE}&after=${Math.floor(Date.now()/1000) - 2*86400}`;
+    if (loadMore && p.cursor) url += `&before=${p.cursor}`;
+    const resp = await fetch(url);
+    const data = await resp.json();
+    const items = data || [];
+    if (items.length < PAGE_SIZE) p.done = true;
+    if (items.length > 0) p.cursor = items[items.length - 1].timestamp;
+    if (loadMore) appendWhaleTrades(items); else renderWhaleTrades(items);
+  } catch (e) {
+    console.error('fetchWhaleTrades:', e);
   } finally {
     p.loading = false;
   }
@@ -477,23 +605,17 @@ async function fetchNewMarkets(loadMore) {
   try {
     const cat = marketCategory === 'all' ? '' : marketCategory;
     let url = `${API}/api/new-markets?category=${cat}&limit=${PAGE_SIZE}`;
-    if (loadMore && p.cursor) {
-      url += `&before=${p.cursor}`;
-    }
+    if (loadMore && p.cursor) url += `&before=${p.cursor}`;
     const resp = await fetch(url);
     const data = await resp.json();
     const items = data || [];
     if (items.length < PAGE_SIZE) p.done = true;
-    if (items.length > 0) {
-      p.cursor = items[items.length - 1].first_seen;
-    }
+    if (items.length > 0) p.cursor = items[items.length - 1].first_seen;
     if (loadMore) {
       appendNewMarkets(items);
     } else {
       renderNewMarkets(items);
-      if (cat === '') {
-        updateCategoryButtons(items);
-      }
+      if (cat === '') updateCategoryButtons(items);
     }
   } catch (e) {
     console.error('fetchNewMarkets:', e);
@@ -510,11 +632,9 @@ function updateCategoryButtons(markets) {
     const c = m.category || '';
     if (c) counts[c] = (counts[c] || 0) + 1;
   }
-  // Merge preset + any extra dynamic categories
   const seen = new Set(PRESET_CATS);
   const extras = Object.keys(counts).filter(c => !seen.has(c)).sort((a, b) => (counts[b] || 0) - (counts[a] || 0));
   const allCats = [...PRESET_CATS, ...extras];
-
   const container = document.getElementById('market-filters');
   let html = '<button class="filter-btn' + (marketCategory === 'all' ? ' active' : '') + '" data-cat="all">All</button>';
   for (const cat of allCats) {
@@ -532,21 +652,13 @@ async function fetchSettlements(loadMore) {
   p.loading = true;
   try {
     let url = `${API}/api/settlements?limit=${PAGE_SIZE}`;
-    if (loadMore && p.cursor) {
-      url += `&before=${p.cursor}`;
-    }
+    if (loadMore && p.cursor) url += `&before=${p.cursor}`;
     const resp = await fetch(url);
     const data = await resp.json();
     const items = data || [];
     if (items.length < PAGE_SIZE) p.done = true;
-    if (items.length > 0) {
-      p.cursor = items[items.length - 1].resolved_at;
-    }
-    if (loadMore) {
-      appendSettlements(items);
-    } else {
-      renderSettlements(items);
-    }
+    if (items.length > 0) p.cursor = items[items.length - 1].resolved_at;
+    if (loadMore) appendSettlements(items); else renderSettlements(items);
   } catch (e) {
     console.error('fetchSettlements:', e);
   } finally {
@@ -554,7 +666,9 @@ async function fetchSettlements(loadMore) {
   }
 }
 
-// --- Render functions (full replace, used for initial load) ---
+// ============================================================
+// Render functions
+// ============================================================
 function renderPriceMoves(movers) {
   const list = document.getElementById('price-list');
   if (movers.length === 0) {
@@ -599,14 +713,22 @@ function renderTrades(trades) {
   list.innerHTML = trades.map(renderTradeItem).join('');
 }
 
+function renderWhaleTrades(trades) {
+  const list = document.getElementById('whale-trade-list');
+  if (trades.length === 0) {
+    list.innerHTML = '<div class="empty-state">暂无巨鲸交易数据<br>当标记的鲸鱼钱包有交易时会显示在这里</div>';
+    return;
+  }
+  list.innerHTML = trades.map(renderTradeItem).join('');
+}
+
 function tradeKey(t) {
-  // Unique key: prefer transaction_hash, fallback to asset:timestamp
   if (t.transaction_hash) return 'tx:' + t.transaction_hash;
   return (t.asset || '') + ':' + (t.timestamp || 0);
 }
 
 function renderTradeItem(t) {
-  const rawName = t.profile_name || t.pseudonym || shortAddr(t.proxy_wallet) || (t.source === 'ws' ? 'WebSocket' : '匿名');
+  const rawName = t.profile_name || t.pseudonym || shortAddr(t.proxy_wallet) || '匿名';
   const name = rawName.length > 20 ? rawName.slice(0, 17) + '...' : rawName;
   const side = (t.side || '').toUpperCase();
   const sideLabel = side === 'BUY' ? '买入' : '卖出';
@@ -615,9 +737,7 @@ function renderTradeItem(t) {
   const usd = formatUSD(t.usd_value);
   const priceCents = t.price != null ? (t.price * 100).toFixed(1).replace(/\.0$/, '') + '¢' : '';
   const timeAgo = relativeTime(t.timestamp);
-  const profileUrl = t.proxy_wallet
-    ? `https://polymarket.com/profile/${t.proxy_wallet}`
-    : '';
+  const profileUrl = t.proxy_wallet ? `https://polymarket.com/profile/${t.proxy_wallet}` : '';
   const userTag = profileUrl
     ? `<a class="trade-user" href="${esc(profileUrl)}" target="_blank">${esc(name)}</a>`
     : `<span class="trade-user no-link">${esc(name)}</span>`;
@@ -633,7 +753,14 @@ function renderTradeItem(t) {
         ${priceCents ? `<span class="trade-price">@${priceCents}</span>` : ''}
         <span class="trade-outcome ${outcomeCls}">${esc(t.outcome || '')}</span>
       </div>
-      <div class="trade-question">${esc(t.title || '')}</div>
+      <div class="trade-question">${t.title ? (() => {
+        const eventUrl = t.event_slug
+          ? 'https://polymarket.com/event/' + encodeURIComponent(t.event_slug)
+          : (t.slug ? 'https://polymarket.com/market/' + encodeURIComponent(t.slug) : '');
+        return eventUrl
+          ? '<a href="' + esc(eventUrl) + '" target="_blank" style="color:#8b949e;text-decoration:none">' + esc(t.title) + '</a>'
+          : esc(t.title);
+      })() : ''}</div>
       <div class="trade-time" data-ts="${ts}">${timeAgo}</div>
     </div>
   </div>`;
@@ -697,62 +824,68 @@ function renderSettlementItem(s) {
   </a>`;
 }
 
-// --- Append functions (used for infinite scroll / SSE prepend) ---
+// ============================================================
+// Append / Prepend
+// ============================================================
 function appendTrades(items) {
   const list = document.getElementById('trade-list');
-  // Remove empty state if present
+  const empty = list.querySelector('.empty-state');
+  if (empty) empty.remove();
+  list.insertAdjacentHTML('beforeend', items.map(renderTradeItem).join(''));
+}
+
+function appendWhaleTrades(items) {
+  const list = document.getElementById('whale-trade-list');
   const empty = list.querySelector('.empty-state');
   if (empty) empty.remove();
   list.insertAdjacentHTML('beforeend', items.map(renderTradeItem).join(''));
 }
 
 function prependTrade(item) {
-  const list = document.getElementById('trade-list');
+  _prependTradeToList('trade-list', item, true);
+  // Also push to whale list if visible (whale-side filtering happens server-side on refresh)
+  if (visibleCols.includes('whale-trades') && item.proxy_wallet) {
+    _prependTradeToList('whale-trade-list', item, false);
+  }
+}
+
+function _prependTradeToList(listId, item, applyFilters) {
+  const list = document.getElementById(listId);
   const empty = list.querySelector('.empty-state');
   if (empty) empty.remove();
 
   const key = tradeKey(item);
   const ts = item.timestamp || 0;
 
-  // Check USD filter: skip if below current threshold
-  const usdVal = item.usd_value || 0;
-  if (usdVal < tradeMinUSD) return;
-  // Check price filter: skip if above current max price
-  if (tradeMaxPrice > 0 && (item.price || 0) > tradeMaxPrice) return;
-
-  // Deduplicate: if trade already exists by key, update in place
-  const existing = list.querySelector(`[data-key="${CSS.escape(key)}"]`);
-  if (existing) {
-    existing.outerHTML = renderTradeItem(item);
-    return;
+  if (applyFilters) {
+    if ((item.usd_value || 0) < tradeMinUSD) return;
+    if (tradeMaxPrice > 0 && (item.price || 0) > tradeMaxPrice) return;
   }
-  // Also check for a WS→REST enrichment: same timestamp ±10s, same asset
+
+  // Deduplicate by key
+  const existing = list.querySelector(`[data-key="${CSS.escape(key)}"]`);
+  if (existing) { existing.outerHTML = renderTradeItem(item); return; }
+
+  // WS→REST enrichment dedup
   if (item.transaction_hash && item.asset) {
     const allItems = list.querySelectorAll('.item[data-ts]');
     for (const el of allItems) {
       const elTS = parseInt(el.dataset.ts, 10) || 0;
-      if (Math.abs(ts - elTS) <= 10) {
-        // Close timestamp — likely the same trade enriched by REST
-        el.outerHTML = renderTradeItem(item);
-        return;
-      }
+      if (Math.abs(ts - elTS) <= 10) { el.outerHTML = renderTradeItem(item); return; }
     }
   }
 
-  // Insert at correct position (sorted by timestamp DESC = newest first)
+  // Insert sorted (timestamp DESC)
   const items = list.querySelectorAll('.item[data-ts]');
   let inserted = false;
   for (const el of items) {
-    const elTS = parseInt(el.dataset.ts, 10) || 0;
-    if (ts > elTS) {
+    if (ts > (parseInt(el.dataset.ts, 10) || 0)) {
       el.insertAdjacentHTML('beforebegin', renderTradeItem(item));
       inserted = true;
       break;
     }
   }
-  if (!inserted) {
-    list.insertAdjacentHTML('beforeend', renderTradeItem(item));
-  }
+  if (!inserted) list.insertAdjacentHTML('beforeend', renderTradeItem(item));
 }
 
 function appendNewMarkets(items) {
@@ -783,33 +916,22 @@ function prependSettlement(item) {
   list.insertAdjacentHTML('afterbegin', renderSettlementItem(item));
 }
 
-// --- SSE (Server-Sent Events) ---
+// ============================================================
+// SSE
+// ============================================================
 function connectSSE() {
   const evtSource = new EventSource(`${API}/api/events`);
-
   evtSource.onmessage = function(event) {
     try {
       const evt = JSON.parse(event.data);
       switch (evt.type) {
-        case 'trade':
-          prependTrade(evt.data);
-          break;
-        case 'settlement':
-          prependSettlement(evt.data);
-          break;
-        case 'new_market':
-          prependNewMarket(evt.data);
-          break;
-        case 'price_move':
-          // Price moves are a full list refresh, not individual prepends
-          // We'll let the periodic refresh handle this
-          break;
+        case 'trade': prependTrade(evt.data); break;
+        case 'settlement': prependSettlement(evt.data); break;
+        case 'new_market': prependNewMarket(evt.data); break;
+        case 'price_move': break;
       }
-    } catch (e) {
-      console.error('SSE parse error:', e);
-    }
+    } catch (e) { console.error('SSE parse error:', e); }
   };
-
   evtSource.onerror = function() {
     console.warn('SSE connection lost, reconnecting in 5s...');
     evtSource.close();
@@ -817,27 +939,28 @@ function connectSSE() {
   };
 }
 
-// --- Helpers ---
+
+
+// ============================================================
+// Helpers
+// ============================================================
+const _escEl = document.createElement('div');
 function esc(s) {
   if (!s) return '';
-  const d = document.createElement('div');
-  d.textContent = s;
-  return d.innerHTML;
+  _escEl.textContent = s;
+  return _escEl.innerHTML;
 }
-
 function shortAddr(addr) {
   if (!addr) return '';
   if (addr.length < 12) return addr;
   return addr.slice(0, 8) + '...' + addr.slice(-4);
 }
-
 function formatUSD(val) {
   if (!val) return '$0';
   if (val >= 1000000) return '$' + (val / 1000000).toFixed(1) + 'M';
   if (val >= 1000) return '$' + Math.round(val).toLocaleString();
   return '$' + val.toFixed(0);
 }
-
 function relativeTime(tsMs) {
   if (!tsMs) return '';
   let ts = tsMs;
@@ -848,7 +971,6 @@ function relativeTime(tsMs) {
   if (diff < 86400000) return Math.floor(diff / 3600000) + '小时前';
   return Math.floor(diff / 86400000) + '天前';
 }
-
 function relativeTimeISO(isoStr) {
   if (!isoStr) return '';
   const ts = new Date(isoStr).getTime();
@@ -860,35 +982,80 @@ function relativeTimeISO(isoStr) {
   return Math.floor(diff / 86400000) + '天前';
 }
 
-// --- Init ---
+// ============================================================
+// Init
+// ============================================================
 function refreshAll() {
   fetchPriceMoves();
   fetchTrades();
+  if (visibleCols.includes('whale-trades')) fetchWhaleTrades();
   fetchNewMarkets();
   fetchSettlements();
 }
 
 refreshAll();
 connectSSE();
-// Price moves still use periodic refresh (they represent top movers computed server-side)
+
+// --- Whale modal ---
+function openWhaleModal() {
+  document.getElementById('whale-modal').classList.add('open');
+  var saved = localStorage.getItem('polyscan_admin_token');
+  if (saved) document.getElementById('wm-token').value = saved;
+  document.getElementById('wm-addr').focus();
+}
+function closeWhaleModal() {
+  document.getElementById('whale-modal').classList.remove('open');
+}
+function wmToast(text, ok) {
+  var el = document.createElement('div');
+  el.className = 'wm-toast ' + (ok ? 'ok' : 'err');
+  el.textContent = text;
+  document.getElementById('wm-toast-wrap').appendChild(el);
+  setTimeout(function(){ el.style.opacity='0'; el.style.transition='opacity .3s'; setTimeout(function(){ el.remove(); }, 300); }, 3500);
+}
+function submitWhale() {
+  var addr = document.getElementById('wm-addr').value.trim();
+  var alias = document.getElementById('wm-alias').value.trim();
+  var token = document.getElementById('wm-token').value.trim();
+  if (!token) { wmToast('请输入管理员 Token', false); return; }
+  if (!addr || !addr.startsWith('0x') || addr.length !== 42) { wmToast('请输入有效地址 (0x, 42字符)', false); return; }
+  localStorage.setItem('polyscan_admin_token', token);
+  var btn = document.getElementById('wm-submit');
+  btn.disabled = true; btn.textContent = '添加中…';
+  fetch('/api/whales', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token },
+    body: JSON.stringify({ address: addr, alias: alias })
+  }).then(function(r){ return r.json().then(function(d){ return {ok:r.ok, data:d}; }); })
+  .then(function(res) {
+    if (!res.ok) { wmToast(res.data.error || '添加失败', false); return; }
+    wmToast('已添加: ' + addr.slice(0,8) + '…', true);
+    document.getElementById('wm-addr').value = '';
+    document.getElementById('wm-alias').value = '';
+    closeWhaleModal();
+  }).catch(function(e){ wmToast('请求失败: ' + e.message, false); })
+  .finally(function(){ btn.disabled = false; btn.textContent = '添加'; });
+}
+document.getElementById('wm-addr').addEventListener('keydown', function(e) {
+  if (e.key === 'Enter') { var a = document.getElementById('wm-alias'); if (!a.value.trim()) a.focus(); else submitWhale(); }
+});
+document.getElementById('wm-alias').addEventListener('keydown', function(e) { if (e.key === 'Enter') submitWhale(); });
+document.getElementById('wm-token').addEventListener('keydown', function(e) { if (e.key === 'Enter') submitWhale(); });
+document.addEventListener('keydown', function(e) { if (e.key === 'Escape') closeWhaleModal(); });
 setInterval(fetchPriceMoves, 5000);
 
-// Refresh relative time labels every 30s
+// Refresh relative times every 30s
 setInterval(function() {
-  // Trades: data-ts is Unix seconds
   document.querySelectorAll('.trade-time[data-ts]').forEach(el => {
     const ts = parseInt(el.dataset.ts, 10);
     if (ts) el.textContent = relativeTime(ts);
   });
-  // Markets & Settlements: data-iso is ISO string
   document.querySelectorAll('.item-meta[data-iso]').forEach(el => {
     const iso = el.dataset.iso;
     if (!iso) return;
-    // Settlement metas have a child <span> for outcome — preserve it
     const outcomeSpan = el.querySelector('.settlement-outcome');
     if (outcomeSpan) {
-      const timeText = relativeTimeISO(iso);
-      el.innerHTML = timeText + ' · ' + outcomeSpan.outerHTML;
+      el.innerHTML = relativeTimeISO(iso) + ' · ' + outcomeSpan.outerHTML;
     } else {
       el.textContent = relativeTimeISO(iso);
     }

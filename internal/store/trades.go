@@ -97,6 +97,39 @@ func (s *TradeStore) RecentByWallet(ctx context.Context, wallet string, limit in
 	return scanTrades(rows)
 }
 
+// RecentByWhales returns trades from tracked whale wallets, most recent first.
+// wallets is a list of whale addresses. Supports cursor pagination via beforeTS.
+// If afterTS > 0, only returns trades newer than that timestamp.
+func (s *TradeStore) RecentByWhales(ctx context.Context, wallets []string, limit int64, beforeTS int64, afterTS int64) ([]TradeRecord, error) {
+	if len(wallets) == 0 {
+		return nil, nil
+	}
+	placeholders := strings.Repeat("?,", len(wallets))
+	placeholders = placeholders[:len(placeholders)-1] // trim trailing comma
+
+	q := `SELECT ` + tradeCols + ` FROM trades WHERE proxy_wallet IN (` + placeholders + `)`
+	args := make([]any, len(wallets))
+	for i, w := range wallets {
+		args[i] = w
+	}
+	if beforeTS > 0 {
+		q += ` AND timestamp < ?`
+		args = append(args, beforeTS)
+	}
+	if afterTS > 0 {
+		q += ` AND timestamp > ?`
+		args = append(args, afterTS)
+	}
+	q += ` ORDER BY timestamp DESC LIMIT ?`
+	args = append(args, limit)
+
+	rows, err := s.db.QueryContext(ctx, q, args...)
+	if err != nil {
+		return nil, err
+	}
+	return scanTrades(rows)
+}
+
 // RecentLarge returns trades above a USD threshold, most recent first.
 // If beforeTS > 0, only returns trades older than that timestamp (cursor pagination).
 // If maxPrice > 0, only returns trades with price <= maxPrice.
@@ -249,4 +282,39 @@ func isUniqueViolation(err error) bool {
 		return false
 	}
 	return strings.Contains(err.Error(), "UNIQUE constraint failed")
+}
+
+// ProfileNamesForWallets returns a map of wallet address → profile_name
+// by picking the most recently used non-empty profile_name from the trades table.
+func (s *TradeStore) ProfileNamesForWallets(ctx context.Context, wallets []string) (map[string]string, error) {
+	if len(wallets) == 0 {
+		return nil, nil
+	}
+	placeholders := strings.Repeat("?,", len(wallets))
+	placeholders = placeholders[:len(placeholders)-1]
+
+	q := `SELECT proxy_wallet, profile_name FROM trades
+		WHERE proxy_wallet IN (` + placeholders + `) AND profile_name != ''
+		GROUP BY proxy_wallet
+		HAVING timestamp = MAX(timestamp)`
+	args := make([]any, len(wallets))
+	for i, w := range wallets {
+		args[i] = w
+	}
+
+	rows, err := s.db.QueryContext(ctx, q, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	m := make(map[string]string, len(wallets))
+	for rows.Next() {
+		var addr, name string
+		if err := rows.Scan(&addr, &name); err != nil {
+			return nil, err
+		}
+		m[addr] = name
+	}
+	return m, rows.Err()
 }

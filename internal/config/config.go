@@ -63,23 +63,18 @@ type TelegramConfig struct {
 
 // WhaleConfig holds whale tracking settings.
 type WhaleConfig struct {
-	AutoTrack    bool            `yaml:"auto_track"`     // auto-track large trade wallets
-	MaxTracked   int             `yaml:"max_tracked"`    // max tracked wallets
-	PollInterval Duration        `yaml:"poll_interval"`  // per-whale poll interval
-	Addresses    []WhaleAddress  `yaml:"addresses"`      // manually configured addresses
-	Cooldown     Duration        `yaml:"cooldown"`       // cooldown between alerts for same whale
-}
-
-// WhaleAddress is a manually configured whale wallet.
-type WhaleAddress struct {
-	Address string `yaml:"address"`
-	Alias   string `yaml:"alias"`
+	MinTradeAmount float64  `yaml:"min_trade_amount"` // min single-trade USD to trigger auto-track (0 = use large_trade_threshold)
+	MaxBuyPrice    float64  `yaml:"max_buy_price"`    // only auto-track buys with price <= this (0 = no filter)
+	MaxTracked     int      `yaml:"max_tracked"`      // max tracked wallets
+	PollInterval   Duration `yaml:"poll_interval"`    // per-whale poll interval
+	Cooldown       Duration `yaml:"cooldown"`         // cooldown between alerts for same whale
 }
 
 // APIConfig holds HTTP API server settings.
 type APIConfig struct {
-	Enabled bool   `yaml:"enabled"`
-	Addr    string `yaml:"addr"` // e.g. ":8080"
+	Enabled     bool     `yaml:"enabled"`
+	Addr        string   `yaml:"addr"`         // e.g. ":8080"
+	AdminTokens []string `yaml:"admin_tokens"` // tokens for write operations (empty = disabled)
 }
 
 // Duration is a time.Duration that can be unmarshaled from a YAML string like "5m".
@@ -119,7 +114,6 @@ func DefaultConfig() *Config {
 		TradePollInterval:  Duration{30 * time.Second},
 		Telegram: TelegramConfig{},
 		Whale: WhaleConfig{
-			AutoTrack:    true,
 			MaxTracked:   200,
 			PollInterval: Duration{30 * time.Second},
 			Cooldown:     Duration{5 * time.Minute},

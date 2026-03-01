@@ -23,6 +23,9 @@ type WhalePoller struct {
 	alerts   chan<- types.Alert
 	logger   *slog.Logger
 
+	// ProfileLookup resolves a wallet address to a Polymarket display name.
+	ProfileLookup func(ctx context.Context, proxyWallet string) string
+
 	// saveInterval controls how often the whale data is persisted
 	saveInterval time.Duration
 }
@@ -115,11 +118,21 @@ func (wp *WhalePoller) pollAll(ctx context.Context) {
 			wp.tracker.UpdateVolume(ctx, w.Address, act.USDCSize)
 			wp.sendAlert(ctx, w, &act)
 
-			// Persist whale trade to MongoDB
+			// Resolve profile name: prefer activity API name, then alias, then lookup
+			profileName := act.Name
+			if profileName == "" && w.Alias != "" {
+				profileName = w.Alias
+			}
+			if profileName == "" && wp.ProfileLookup != nil {
+				profileName = wp.ProfileLookup(ctx, w.Address)
+			}
+
+			// Persist whale trade
 			if wp.tradeDB != nil {
 				rec := &store.TradeRecord{
 					ProxyWallet:     w.Address,
-					Pseudonym:       w.Alias,
+					Pseudonym:       act.Pseudonym,
+					ProfileName:     profileName,
 					Side:            act.Side,
 					Asset:           act.Asset,
 					ConditionID:     act.ConditionID,
