@@ -207,10 +207,10 @@ func (s *TradeStore) UpsertRESTTrade(ctx context.Context, rec *TradeRecord) erro
 		// Found matching WS trade — enrich it
 		_, err = tx.ExecContext(ctx, `
 			UPDATE trades
-			SET proxy_wallet=?, pseudonym=?, transaction_hash=?,
+			SET proxy_wallet=?, pseudonym=?, profile_name=?, transaction_hash=?,
 			    slug=?, event_slug=?, source='ws+rest'
 			WHERE id=?`,
-			rec.ProxyWallet, rec.Pseudonym, rec.TransactionHash,
+			rec.ProxyWallet, rec.Pseudonym, rec.ProfileName, rec.TransactionHash,
 			rec.Slug, rec.EventSlug, id,
 		)
 		if err != nil {

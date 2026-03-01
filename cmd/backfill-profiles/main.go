@@ -1,23 +1,59 @@
-// backfill-profiles is a one-time migration tool that populates
+// backfill-profiles is a migration tool that populates
 // the profile_name field for existing trades in SQLite.
+// It queries the Polymarket Data API /activity endpoint to resolve
+// wallet addresses to actual usernames.
 package main
 
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"log/slog"
+	"net/http"
 	"os"
 	"time"
 
-	"github.com/mkfoyw/polyscan/internal/profile"
 	_ "modernc.org/sqlite"
 )
+
+const activityURL = "https://data-api.polymarket.com/activity"
+
+// activityEntry is a minimal struct for the /activity response.
+type activityEntry struct {
+	Name      string `json:"name"`
+	Pseudonym string `json:"pseudonym"`
+}
+
+// lookupName fetches the actual username for a wallet via the Data API /activity endpoint.
+func lookupName(ctx context.Context, client *http.Client, wallet string) (string, error) {
+	url := fmt.Sprintf("%s?user=%s&limit=1", activityURL, wallet)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return "", err
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("status %d", resp.StatusCode)
+	}
+	var entries []activityEntry
+	if err := json.NewDecoder(resp.Body).Decode(&entries); err != nil {
+		return "", err
+	}
+	if len(entries) == 0 {
+		return "", nil
+	}
+	return entries[0].Name, nil
+}
 
 func main() {
 	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo}))
 
-	dbPath := "polyscan.db"
+	dbPath := "data/polyscan.db"
 	proxy := "http://127.0.0.1:7890"
 	if len(os.Args) > 1 {
 		dbPath = os.Args[1]
@@ -36,6 +72,8 @@ func main() {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
 	defer cancel()
+
+	client := &http.Client{Timeout: 15 * time.Second}
 
 	// Open SQLite database
 	db, err := sql.Open("sqlite", dbPath)
@@ -68,7 +106,6 @@ func main() {
 
 	logger.Info("found wallets to backfill", "count", len(wallets))
 
-	profileClient := profile.NewClient(logger)
 	updated := 0
 	skipped := 0
 	failed := 0
@@ -78,9 +115,17 @@ func main() {
 			continue
 		}
 
-		name := profileClient.Lookup(ctx, wallet)
+		name, err := lookupName(ctx, client, wallet)
+		if err != nil {
+			logger.Warn("lookup failed", "wallet", wallet, "error", err)
+			failed++
+			// Rate limit even on failure
+			time.Sleep(300 * time.Millisecond)
+			continue
+		}
 		if name == "" {
 			skipped++
+			time.Sleep(300 * time.Millisecond)
 			continue
 		}
 
@@ -98,11 +143,12 @@ func main() {
 		updated += int(n)
 
 		if (i+1)%10 == 0 || i == len(wallets)-1 {
-			logger.Info("progress", "processed", i+1, "total", len(wallets), "updated_trades", updated, "skipped", skipped)
+			logger.Info("progress", "processed", i+1, "total", len(wallets),
+				"updated_trades", updated, "skipped", skipped, "failed", failed)
 		}
 
-		// Rate limit: ~2 requests per second to be polite
-		time.Sleep(500 * time.Millisecond)
+		// Rate limit: ~3 requests per second
+		time.Sleep(300 * time.Millisecond)
 	}
 
 	logger.Info("backfill complete",

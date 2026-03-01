@@ -41,7 +41,7 @@ func NewDiscovery(mktStore *types.MarketStore, settlementStore *store.Settlement
 	return &Discovery{
 		store:           mktStore,
 		settlementStore: settlementStore,
-		client:          &http.Client{Timeout: 30 * time.Second},
+		client:          &http.Client{Timeout: 60 * time.Second},
 		logger:          logger,
 		interval:        interval,
 	}

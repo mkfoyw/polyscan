@@ -1,5 +1,7 @@
 .PHONY: build run dev clean fmt vet test
 
+-include hosts.mk
+
 # 二进制名称
 BINARY := polyscan
 # 构建输出目录
@@ -15,9 +17,20 @@ build:
 	go build -o $(BUILD_DIR)/backfill-profiles ./cmd/backfill-profiles
 	go build -o $(BUILD_DIR)/migrate-mongo2sqlite ./cmd/migrate-mongo2sqlite
 
-## run: 编译并运行 (默认使用 config.yaml)
-run: build
-	./$(BUILD_DIR)/$(BINARY) config.yaml
+## build-linux: 交叉编译 Linux amd64 二进制 (用于部署到服务器)
+build-linux:
+	@mkdir -p $(BUILD_DIR)
+	GOOS=linux GOARCH=amd64 go build -o $(BUILD_DIR)/$(BINARY) ./cmd/polyscan
+	GOOS=linux GOARCH=amd64 go build -o $(BUILD_DIR)/backfill-profiles ./cmd/backfill-profiles
+	GOOS=linux GOARCH=amd64 go build -o $(BUILD_DIR)/migrate-mongo2sqlite ./cmd/migrate-mongo2sqlite
+
+## run: 运行 (服务器上直接运行预编译的二进制，本地先编译)
+run:
+	@if [ -f $(BUILD_DIR)/$(BINARY) ]; then \
+		./$(BUILD_DIR)/$(BINARY) config.yaml; \
+	else \
+		$(MAKE) build && ./$(BUILD_DIR)/$(BINARY) config.yaml; \
+	fi
 
 ## dev: 开发模式运行 (debug 日志)
 dev: build

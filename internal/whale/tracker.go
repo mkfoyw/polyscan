@@ -69,7 +69,7 @@ func (t *Tracker) Load(ctx context.Context) error {
 		}
 	}
 
-	t.logger.Info("loaded whale data from MongoDB", "count", len(t.whales))
+	t.logger.Info("loaded whale data", "count", len(t.whales))
 	return nil
 }
 

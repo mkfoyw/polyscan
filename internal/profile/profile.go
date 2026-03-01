@@ -23,9 +23,9 @@ type Profile struct {
 	DisplayUsernamePublic  *bool  `json:"displayUsernamePublic"`
 }
 
-// DisplayName returns the best display name: user-chosen name if public, else pseudonym.
+// DisplayName returns the best display name: user-chosen name first, else pseudonym.
 func (p *Profile) DisplayName() string {
-	if p.DisplayUsernamePublic != nil && *p.DisplayUsernamePublic && p.Name != "" {
+	if p.Name != "" {
 		return p.Name
 	}
 	return p.Pseudonym

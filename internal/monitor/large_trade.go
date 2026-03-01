@@ -205,10 +205,10 @@ func (lt *LargeTrade) ProcessRESTTrade(ctx context.Context, trade types.Trade) {
 		"wallet", trade.ProxyWallet,
 	)
 
-	// Persist to MongoDB: enrich existing WS trade or insert new REST record
+	// Persist: enrich existing WS trade or insert new REST record
 	if lt.tradeDB != nil {
-		profileName := ""
-		if lt.ProfileLookup != nil && trade.ProxyWallet != "" {
+		profileName := trade.Name // Data API returns the actual username
+		if profileName == "" && lt.ProfileLookup != nil && trade.ProxyWallet != "" {
 			profileName = lt.ProfileLookup(ctx, trade.ProxyWallet)
 		}
 		rec := &store.TradeRecord{
@@ -297,15 +297,14 @@ func (lt *LargeTrade) BackfillRESTTrade(ctx context.Context, trade types.Trade) 
 		return
 	}
 
+	profileName := trade.Name // Data API returns the actual username
+	if profileName == "" && lt.ProfileLookup != nil && trade.ProxyWallet != "" {
+		profileName = lt.ProfileLookup(ctx, trade.ProxyWallet)
+	}
 	rec := &store.TradeRecord{
 		ProxyWallet:     trade.ProxyWallet,
 		Pseudonym:       trade.Pseudonym,
-		ProfileName:     func() string {
-			if lt.ProfileLookup != nil && trade.ProxyWallet != "" {
-				return lt.ProfileLookup(ctx, trade.ProxyWallet)
-			}
-			return ""
-		}(),
+		ProfileName:     profileName,
 		Side:            trade.Side,
 		Asset:           trade.Asset,
 		ConditionID:     trade.ConditionID,
@@ -375,8 +374,8 @@ func (lt *LargeTrade) enrichWSTrade(assetID string, tsSec int64, size float64) {
 		}
 		if diff <= 10 && t.Size == size {
 			if t.ProxyWallet != "" && lt.tradeDB != nil {
-				profileName := ""
-				if lt.ProfileLookup != nil {
+				profileName := t.Name // Data API returns the actual username
+				if profileName == "" && lt.ProfileLookup != nil {
 					profileName = lt.ProfileLookup(ctx, t.ProxyWallet)
 				}
 				if err := lt.tradeDB.EnrichByAssetTimestamp(ctx, assetID, tsSec, t.ProxyWallet, t.Pseudonym, profileName, t.TransactionHash); err != nil {
