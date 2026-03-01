@@ -1,0 +1,821 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PolyScan Dashboard</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+html, body { height: 100%; overflow: hidden; }
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  background: #0d1117;
+  color: #c9d1d9;
+}
+.dashboard {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 16px;
+  padding: 16px;
+  max-width: 1800px;
+  margin: 0 auto;
+  height: 100vh;
+  box-sizing: border-box;
+}
+@media (max-width: 1400px) {
+  html, body { overflow: auto; }
+  .dashboard { grid-template-columns: repeat(2, 1fr); height: auto; }
+  .column { min-height: 60vh; }
+}
+@media (max-width: 768px) {
+  .dashboard { grid-template-columns: 1fr; }
+}
+.column {
+  background: #161b22;
+  border: 1px solid #30363d;
+  border-radius: 12px;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  min-height: 0;
+}
+.column-header {
+  padding: 16px 16px 12px;
+  border-bottom: 1px solid #30363d;
+}
+.column-header h2 {
+  font-size: 16px;
+  font-weight: 600;
+  color: #e6edf3;
+  margin-bottom: 4px;
+}
+.column-header .subtitle {
+  font-size: 12px;
+  color: #8b949e;
+}
+.filters {
+  display: flex;
+  gap: 6px;
+  padding: 10px 16px;
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+}
+.filters::-webkit-scrollbar { display: none; }
+.filter-btn {
+  padding: 5px 12px;
+  border-radius: 16px;
+  border: 1px solid #30363d;
+  background: transparent;
+  color: #8b949e;
+  font-size: 12px;
+  cursor: pointer;
+  white-space: nowrap;
+  flex-shrink: 0;
+  transition: all 0.2s;
+  white-space: nowrap;
+}
+.filter-btn:hover { border-color: #58a6ff; color: #58a6ff; }
+.filter-btn.active {
+  background: #1f6feb;
+  border-color: #1f6feb;
+  color: #fff;
+}
+.list {
+  flex: 1;
+  overflow-y: auto;
+  padding: 0;
+}
+.list::-webkit-scrollbar { width: 4px; }
+.list::-webkit-scrollbar-track { background: transparent; }
+.list::-webkit-scrollbar-thumb { background: #30363d; border-radius: 2px; }
+.item {
+  display: flex;
+  align-items: flex-start;
+  padding: 12px 16px;
+  border-bottom: 1px solid #21262d;
+  gap: 10px;
+  transition: background 0.15s;
+  cursor: pointer;
+  text-decoration: none;
+  color: inherit;
+}
+.item:hover { background: #1c2128; }
+.item-icon {
+  width: 36px;
+  height: 36px;
+  border-radius: 8px;
+  background: #30363d;
+  flex-shrink: 0;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 18px;
+}
+.item-icon img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.item-body {
+  flex: 1;
+  min-width: 0;
+}
+.item-title {
+  font-size: 13px;
+  color: #e6edf3;
+  line-height: 1.3;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.item-meta {
+  font-size: 11px;
+  color: #8b949e;
+  margin-top: 3px;
+}
+.item-right {
+  text-align: right;
+  flex-shrink: 0;
+}
+.price-change {
+  font-size: 14px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.price-change.positive { color: #3fb950; }
+.price-change.negative { color: #f85149; }
+.price-pct {
+  font-size: 11px;
+  margin-top: 2px;
+}
+.price-pct.positive { color: #3fb950; }
+.price-pct.negative { color: #f85149; }
+/* Trade items */
+.trade-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.trade-user {
+  font-size: 13px;
+  font-weight: 500;
+  color: #58a6ff;
+  max-width: 160px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.trade-user.no-link {
+  color: #8b949e;
+  cursor: default;
+  text-decoration: none;
+}
+.trade-badge {
+  font-size: 11px;
+  font-weight: 600;
+  padding: 1px 6px;
+  border-radius: 4px;
+}
+.trade-badge.buy { background: rgba(63,185,80,0.15); color: #3fb950; }
+.trade-badge.sell { background: rgba(248,81,73,0.15); color: #f85149; }
+.trade-amount {
+  font-size: 13px;
+  font-weight: 600;
+  color: #e6edf3;
+}
+.trade-outcome {
+  font-size: 12px;
+  font-weight: 500;
+  margin-left: 4px;
+}
+.trade-outcome.yes { color: #3fb950; }
+.trade-outcome.no { color: #f85149; }
+.trade-price {
+  font-size: 12px;
+  color: #8b949e;
+}
+.trade-question {
+  font-size: 12px;
+  color: #8b949e;
+  margin-top: 2px;
+  display: -webkit-box;
+  -webkit-line-clamp: 1;
+  line-clamp: 1;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.trade-time {
+  font-size: 11px;
+  color: #6e7681;
+  margin-top: 2px;
+}
+/* Settlement badge */
+.settlement-outcome {
+  font-size: 12px;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 4px;
+  white-space: nowrap;
+}
+.settlement-outcome.yes { background: rgba(63,185,80,0.15); color: #3fb950; }
+.settlement-outcome.no { background: rgba(248,81,73,0.15); color: #f85149; }
+/* Avatar */
+.avatar {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  background: #30363d;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 14px;
+  color: #8b949e;
+  overflow: hidden;
+}
+.avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.empty-state {
+  padding: 40px 16px;
+  text-align: center;
+  color: #6e7681;
+  font-size: 13px;
+}
+/* Settlement icon overlay */
+.item-icon-wrap {
+  position: relative;
+}
+.icon-check {
+  position: absolute;
+  bottom: -2px;
+  right: -2px;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 9px;
+  color: #fff;
+}
+.icon-check.yes { background: #3fb950; }
+.icon-check.no { background: #f85149; }
+</style>
+</head>
+<body>
+<div class="dashboard">
+
+  <!-- Column 1: Price Movements -->
+  <div class="column">
+    <div class="column-header">
+      <h2>📊 价格波动</h2>
+      <div class="subtitle">显示 5m 内价格波动最大的市场</div>
+    </div>
+    <div class="filters" id="price-filters">
+      <button class="filter-btn active" data-window="5m">5分钟</button>
+      <button class="filter-btn" data-window="10m">10分钟</button>
+      <button class="filter-btn" data-window="30m">30分钟</button>
+      <button class="filter-btn" data-window="1h">1小时</button>
+    </div>
+    <div class="list" id="price-list"></div>
+  </div>
+
+  <!-- Column 2: Large Trades -->
+  <div class="column">
+    <div class="column-header">
+      <h2>💰 大额交易</h2>
+      <div class="subtitle">实时追踪大额订单</div>
+    </div>
+    <div class="filters" id="trade-filters">
+      <button class="filter-btn active" data-min="1000">$1,000+</button>
+      <button class="filter-btn" data-min="10000">$10,000+</button>
+      <button class="filter-btn" data-min="100000">$100,000+</button>
+      <button class="filter-btn" data-min="1000000">$1,000,000+</button>
+    </div>
+    <div class="filters" id="trade-price-filters">
+      <button class="filter-btn active" data-maxprice="0">全部价格</button>
+      <button class="filter-btn" data-maxprice="0.10">&le;10¢</button>
+      <button class="filter-btn" data-maxprice="0.30">&le;30¢</button>
+      <button class="filter-btn" data-maxprice="0.50">&le;50¢</button>
+      <button class="filter-btn" data-maxprice="0.60">&le;60¢</button>
+      <button class="filter-btn" data-maxprice="0.70">&le;70¢</button>
+    </div>
+    <div class="list" id="trade-list"></div>
+  </div>
+
+  <!-- Column 3: New Markets -->
+  <div class="column">
+    <div class="column-header">
+      <h2>🏛 新市场</h2>
+      <div class="subtitle">最新创建的预测市场</div>
+    </div>
+    <div class="filters" id="market-filters">
+      <button class="filter-btn active" data-cat="all">All</button>
+      <button class="filter-btn" data-cat="Politics">Politics</button>
+      <button class="filter-btn" data-cat="Sports">Sports</button>
+      <button class="filter-btn" data-cat="Crypto">Crypto</button>
+      <button class="filter-btn" data-cat="Finance">Finance</button>
+      <button class="filter-btn" data-cat="Geopolitics">Geopolitics</button>
+      <button class="filter-btn" data-cat="Tech">Tech</button>
+      <button class="filter-btn" data-cat="Culture">Culture</button>
+      <button class="filter-btn" data-cat="World">World</button>
+      <button class="filter-btn" data-cat="Economy">Economy</button>
+      <button class="filter-btn" data-cat="Elections">Elections</button>
+    </div>
+    <div class="list" id="market-list"></div>
+  </div>
+
+  <!-- Column 4: Recent Settlements -->
+  <div class="column">
+    <div class="column-header">
+      <h2>✅ 最新结算</h2>
+      <div class="subtitle">最新结算的预测市场</div>
+    </div>
+    <div class="list" id="settlement-list" style="margin-top: 0;"></div>
+  </div>
+
+</div>
+
+<script>
+const API = '';  // same origin
+const PAGE_SIZE = 30;
+
+// --- State ---
+let priceWindow = '5m';
+let tradeMinUSD = 1000;
+let tradeMaxPrice = 0; // 0 = no price filter
+let marketCategory = 'all';
+
+// Pagination cursors and flags per column
+const paging = {
+  trades:      { loading: false, done: false, cursor: null },
+  markets:     { loading: false, done: false, cursor: null },
+  settlements: { loading: false, done: false, cursor: null },
+};
+
+// --- Filter handlers ---
+document.getElementById('price-filters').addEventListener('click', e => {
+  const btn = e.target.closest('.filter-btn');
+  if (!btn) return;
+  document.querySelectorAll('#price-filters .filter-btn').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  priceWindow = btn.dataset.window;
+  document.querySelector('.column-header .subtitle').textContent =
+    `显示 ${btn.textContent} 内价格波动最大的市场`;
+  fetchPriceMoves();
+});
+
+document.getElementById('trade-filters').addEventListener('click', e => {
+  const btn = e.target.closest('.filter-btn');
+  if (!btn) return;
+  document.querySelectorAll('#trade-filters .filter-btn').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  tradeMinUSD = parseInt(btn.dataset.min);
+  resetPaging('trades');
+  document.getElementById('trade-list').innerHTML = '';
+  fetchTrades();
+});
+
+document.getElementById('trade-price-filters').addEventListener('click', e => {
+  const btn = e.target.closest('.filter-btn');
+  if (!btn) return;
+  document.querySelectorAll('#trade-price-filters .filter-btn').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  tradeMaxPrice = parseFloat(btn.dataset.maxprice);
+  resetPaging('trades');
+  document.getElementById('trade-list').innerHTML = '';
+  fetchTrades();
+});
+
+document.getElementById('market-filters').addEventListener('click', e => {
+  const btn = e.target.closest('.filter-btn');
+  if (!btn) return;
+  document.querySelectorAll('#market-filters .filter-btn').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  marketCategory = btn.dataset.cat;
+  resetPaging('markets');
+  document.getElementById('market-list').innerHTML = '';
+  fetchNewMarkets();
+});
+
+function resetPaging(key) {
+  paging[key] = { loading: false, done: false, cursor: null };
+}
+
+// --- Infinite scroll ---
+function setupInfiniteScroll(listId, pagingKey, fetchFn) {
+  const list = document.getElementById(listId);
+  list.addEventListener('scroll', () => {
+    if (paging[pagingKey].loading || paging[pagingKey].done) return;
+    // Trigger when within 100px of the bottom
+    if (list.scrollTop + list.clientHeight >= list.scrollHeight - 100) {
+      fetchFn(true);
+    }
+  });
+}
+
+setupInfiniteScroll('trade-list', 'trades', fetchTrades);
+setupInfiniteScroll('market-list', 'markets', fetchNewMarkets);
+setupInfiniteScroll('settlement-list', 'settlements', fetchSettlements);
+
+// --- Fetch functions ---
+async function fetchPriceMoves() {
+  // Price moves are always a full refresh (top movers change frequently)
+  try {
+    const resp = await fetch(`${API}/api/price-moves?window=${priceWindow}&limit=${PAGE_SIZE}`);
+    const data = await resp.json();
+    renderPriceMoves(data || []);
+  } catch (e) {
+    console.error('fetchPriceMoves:', e);
+  }
+}
+
+async function fetchTrades(loadMore) {
+  const p = paging.trades;
+  if (p.loading) return;
+  p.loading = true;
+  try {
+    let url = `${API}/api/trades?min_usd=${tradeMinUSD}&limit=${PAGE_SIZE}${tradeMaxPrice > 0 ? '&max_price=' + tradeMaxPrice : ''}`;
+    if (loadMore && p.cursor) {
+      url += `&before=${p.cursor}`;
+    }
+    const resp = await fetch(url);
+    const data = await resp.json();
+    const items = data || [];
+    if (items.length < PAGE_SIZE) p.done = true;
+    if (items.length > 0) {
+      // Update cursor to the oldest item's timestamp
+      p.cursor = items[items.length - 1].timestamp;
+    }
+    if (loadMore) {
+      appendTrades(items);
+    } else {
+      renderTrades(items);
+    }
+  } catch (e) {
+    console.error('fetchTrades:', e);
+  } finally {
+    p.loading = false;
+  }
+}
+
+async function fetchNewMarkets(loadMore) {
+  const p = paging.markets;
+  if (p.loading) return;
+  p.loading = true;
+  try {
+    const cat = marketCategory === 'all' ? '' : marketCategory;
+    let url = `${API}/api/new-markets?category=${cat}&limit=${PAGE_SIZE}`;
+    if (loadMore && p.cursor) {
+      url += `&before=${p.cursor}`;
+    }
+    const resp = await fetch(url);
+    const data = await resp.json();
+    const items = data || [];
+    if (items.length < PAGE_SIZE) p.done = true;
+    if (items.length > 0) {
+      p.cursor = items[items.length - 1].first_seen;
+    }
+    if (loadMore) {
+      appendNewMarkets(items);
+    } else {
+      renderNewMarkets(items);
+      if (cat === '') {
+        updateCategoryButtons(items);
+      }
+    }
+  } catch (e) {
+    console.error('fetchNewMarkets:', e);
+  } finally {
+    p.loading = false;
+  }
+}
+
+const PRESET_CATS = ['Politics', 'Sports', 'Crypto', 'Finance', 'Geopolitics', 'Tech', 'Culture', 'World', 'Economy', 'Elections'];
+
+function updateCategoryButtons(markets) {
+  const counts = {};
+  for (const m of markets) {
+    const c = m.category || '';
+    if (c) counts[c] = (counts[c] || 0) + 1;
+  }
+  // Merge preset + any extra dynamic categories
+  const seen = new Set(PRESET_CATS);
+  const extras = Object.keys(counts).filter(c => !seen.has(c)).sort((a, b) => (counts[b] || 0) - (counts[a] || 0));
+  const allCats = [...PRESET_CATS, ...extras];
+
+  const container = document.getElementById('market-filters');
+  let html = '<button class="filter-btn' + (marketCategory === 'all' ? ' active' : '') + '" data-cat="all">All</button>';
+  for (const cat of allCats) {
+    const cnt = counts[cat] || 0;
+    const active = marketCategory === cat ? ' active' : '';
+    const label = cnt > 0 ? `${esc(cat)} (${cnt})` : esc(cat);
+    html += `<button class="filter-btn${active}" data-cat="${esc(cat)}">${label}</button>`;
+  }
+  container.innerHTML = html;
+}
+
+async function fetchSettlements(loadMore) {
+  const p = paging.settlements;
+  if (p.loading) return;
+  p.loading = true;
+  try {
+    let url = `${API}/api/settlements?limit=${PAGE_SIZE}`;
+    if (loadMore && p.cursor) {
+      url += `&before=${p.cursor}`;
+    }
+    const resp = await fetch(url);
+    const data = await resp.json();
+    const items = data || [];
+    if (items.length < PAGE_SIZE) p.done = true;
+    if (items.length > 0) {
+      p.cursor = items[items.length - 1].resolved_at;
+    }
+    if (loadMore) {
+      appendSettlements(items);
+    } else {
+      renderSettlements(items);
+    }
+  } catch (e) {
+    console.error('fetchSettlements:', e);
+  } finally {
+    p.loading = false;
+  }
+}
+
+// --- Render functions (full replace, used for initial load) ---
+function renderPriceMoves(movers) {
+  const list = document.getElementById('price-list');
+  if (movers.length === 0) {
+    list.innerHTML = '<div class="empty-state">暂无价格波动数据<br>等待 WebSocket 实时数据...</div>';
+    return;
+  }
+  list.innerHTML = movers.map(renderPriceMoveItem).join('');
+}
+
+function renderPriceMoveItem(m) {
+  const changeCents = m.price_change;
+  const pct = m.pct_change;
+  const cls = changeCents >= 0 ? 'positive' : 'negative';
+  const sign = changeCents >= 0 ? '+' : '';
+  const currentCents = (m.current_price * 100).toFixed(1);
+  const prevCents = (m.previous_price * 100).toFixed(1);
+  const url = m.url || '#';
+  const img = m.image_url
+    ? `<img src="${esc(m.image_url)}" onerror="this.parentElement.innerHTML='📊'">`
+    : '📊';
+  return `<a class="item" href="${esc(url)}" target="_blank">
+    <div class="item-icon">${img}</div>
+    <div class="item-body">
+      <div class="item-title">${esc(m.question)}</div>
+      <div class="item-meta">最新: ${currentCents}¢ · 之前: ${prevCents}¢</div>
+    </div>
+    <div class="item-right">
+      <div class="price-change ${cls}">${sign}${changeCents.toFixed(2)}¢</div>
+      <div class="price-pct ${cls}">${pct.toFixed(2)}%</div>
+    </div>
+  </a>`;
+}
+
+function renderTrades(trades) {
+  const list = document.getElementById('trade-list');
+  if (trades.length === 0) {
+    list.innerHTML = '<div class="empty-state">暂无大额交易数据</div>';
+    return;
+  }
+  list.innerHTML = trades.map(renderTradeItem).join('');
+}
+
+function renderTradeItem(t) {
+  const rawName = t.profile_name || t.pseudonym || shortAddr(t.proxy_wallet) || (t.source === 'ws' ? 'WebSocket' : '匿名');
+  const name = rawName.length > 20 ? rawName.slice(0, 17) + '...' : rawName;
+  const side = (t.side || '').toUpperCase();
+  const sideLabel = side === 'BUY' ? '买入' : '卖出';
+  const sideCls = side === 'BUY' ? 'buy' : 'sell';
+  const outcomeCls = (t.outcome || '').toLowerCase() === 'yes' ? 'yes' : 'no';
+  const usd = formatUSD(t.usd_value);
+  const priceCents = t.price != null ? (t.price * 100).toFixed(1).replace(/\.0$/, '') + '¢' : '';
+  const timeAgo = relativeTime(t.timestamp);
+  const profileUrl = t.proxy_wallet
+    ? `https://polymarket.com/profile/${t.proxy_wallet}`
+    : '';
+  const userTag = profileUrl
+    ? `<a class="trade-user" href="${esc(profileUrl)}" target="_blank">${esc(name)}</a>`
+    : `<span class="trade-user no-link">${esc(name)}</span>`;
+  return `<div class="item">
+    <div class="avatar">${name.charAt(0).toUpperCase()}</div>
+    <div class="item-body">
+      <div class="trade-header">
+        ${userTag}
+        <span class="trade-badge ${sideCls}">${sideLabel}</span>
+        <span class="trade-amount">${usd}</span>
+        ${priceCents ? `<span class="trade-price">@${priceCents}</span>` : ''}
+        <span class="trade-outcome ${outcomeCls}">${esc(t.outcome || '')}</span>
+      </div>
+      <div class="trade-question">${esc(t.title || '')}</div>
+      <div class="trade-time">${timeAgo}</div>
+    </div>
+  </div>`;
+}
+
+function renderNewMarkets(markets) {
+  const list = document.getElementById('market-list');
+  if (markets.length === 0) {
+    list.innerHTML = '<div class="empty-state">暂无新市场数据</div>';
+    return;
+  }
+  list.innerHTML = markets.map(renderMarketItem).join('');
+}
+
+function renderMarketItem(m) {
+  const url = m.url || '#';
+  const timeAgo = relativeTimeISO(m.first_seen);
+  const img = m.image_url
+    ? `<img src="${esc(m.image_url)}" onerror="this.parentElement.innerHTML='🏛'">`
+    : '🏛';
+  const cat = m.category ? `<span style="color:#8b949e;font-size:11px;margin-left:4px">${esc(m.category)}</span>` : '';
+  return `<a class="item" href="${esc(url)}" target="_blank">
+    <div class="item-icon">${img}</div>
+    <div class="item-body">
+      <div class="item-title">${esc(m.question)}${cat}</div>
+      <div class="item-meta">${timeAgo}</div>
+    </div>
+  </a>`;
+}
+
+function renderSettlements(settlements) {
+  const list = document.getElementById('settlement-list');
+  if (settlements.length === 0) {
+    list.innerHTML = '<div class="empty-state">暂无结算数据</div>';
+    return;
+  }
+  list.innerHTML = settlements.map(renderSettlementItem).join('');
+}
+
+function renderSettlementItem(s) {
+  const outcome = (s.outcome || '').toUpperCase();
+  const cls = outcome === 'YES' ? 'yes' : 'no';
+  const timeAgo = relativeTimeISO(s.resolved_at);
+  const url = s.event_slug
+    ? `https://polymarket.com/event/${s.event_slug}`
+    : (s.slug ? `https://polymarket.com/market/${s.slug}` : '#');
+  const img = s.image_url
+    ? `<img src="${esc(s.image_url)}" onerror="this.parentElement.innerHTML='✅'">`
+    : '✅';
+  return `<a class="item" href="${esc(url)}" target="_blank">
+    <div class="item-icon-wrap">
+      <div class="item-icon">${img}</div>
+      <div class="icon-check ${cls}">✓</div>
+    </div>
+    <div class="item-body">
+      <div class="item-title">${esc(s.question)}</div>
+      <div class="item-meta">${timeAgo} · <span class="settlement-outcome ${cls}">${outcome}</span></div>
+    </div>
+  </a>`;
+}
+
+// --- Append functions (used for infinite scroll / SSE prepend) ---
+function appendTrades(items) {
+  const list = document.getElementById('trade-list');
+  // Remove empty state if present
+  const empty = list.querySelector('.empty-state');
+  if (empty) empty.remove();
+  list.insertAdjacentHTML('beforeend', items.map(renderTradeItem).join(''));
+}
+
+function prependTrade(item) {
+  const list = document.getElementById('trade-list');
+  const empty = list.querySelector('.empty-state');
+  if (empty) empty.remove();
+  list.insertAdjacentHTML('afterbegin', renderTradeItem(item));
+}
+
+function appendNewMarkets(items) {
+  const list = document.getElementById('market-list');
+  const empty = list.querySelector('.empty-state');
+  if (empty) empty.remove();
+  list.insertAdjacentHTML('beforeend', items.map(renderMarketItem).join(''));
+}
+
+function prependNewMarket(item) {
+  const list = document.getElementById('market-list');
+  const empty = list.querySelector('.empty-state');
+  if (empty) empty.remove();
+  list.insertAdjacentHTML('afterbegin', renderMarketItem(item));
+}
+
+function appendSettlements(items) {
+  const list = document.getElementById('settlement-list');
+  const empty = list.querySelector('.empty-state');
+  if (empty) empty.remove();
+  list.insertAdjacentHTML('beforeend', items.map(renderSettlementItem).join(''));
+}
+
+function prependSettlement(item) {
+  const list = document.getElementById('settlement-list');
+  const empty = list.querySelector('.empty-state');
+  if (empty) empty.remove();
+  list.insertAdjacentHTML('afterbegin', renderSettlementItem(item));
+}
+
+// --- SSE (Server-Sent Events) ---
+function connectSSE() {
+  const evtSource = new EventSource(`${API}/api/events`);
+
+  evtSource.onmessage = function(event) {
+    try {
+      const evt = JSON.parse(event.data);
+      switch (evt.type) {
+        case 'trade':
+          prependTrade(evt.data);
+          break;
+        case 'settlement':
+          prependSettlement(evt.data);
+          break;
+        case 'new_market':
+          prependNewMarket(evt.data);
+          break;
+        case 'price_move':
+          // Price moves are a full list refresh, not individual prepends
+          // We'll let the periodic refresh handle this
+          break;
+      }
+    } catch (e) {
+      console.error('SSE parse error:', e);
+    }
+  };
+
+  evtSource.onerror = function() {
+    console.warn('SSE connection lost, reconnecting in 5s...');
+    evtSource.close();
+    setTimeout(connectSSE, 5000);
+  };
+}
+
+// --- Helpers ---
+function esc(s) {
+  if (!s) return '';
+  const d = document.createElement('div');
+  d.textContent = s;
+  return d.innerHTML;
+}
+
+function shortAddr(addr) {
+  if (!addr) return '';
+  if (addr.length < 12) return addr;
+  return addr.slice(0, 8) + '...' + addr.slice(-4);
+}
+
+function formatUSD(val) {
+  if (!val) return '$0';
+  if (val >= 1000000) return '$' + (val / 1000000).toFixed(1) + 'M';
+  if (val >= 1000) return '$' + Math.round(val).toLocaleString();
+  return '$' + val.toFixed(0);
+}
+
+function relativeTime(tsMs) {
+  if (!tsMs) return '';
+  let ts = tsMs;
+  if (ts < 1e12) ts = ts * 1000;
+  const diff = Date.now() - ts;
+  if (diff < 60000) return '刚刚';
+  if (diff < 3600000) return Math.floor(diff / 60000) + '分钟前';
+  if (diff < 86400000) return Math.floor(diff / 3600000) + '小时前';
+  return Math.floor(diff / 86400000) + '天前';
+}
+
+function relativeTimeISO(isoStr) {
+  if (!isoStr) return '';
+  const ts = new Date(isoStr).getTime();
+  if (isNaN(ts)) return '';
+  const diff = Date.now() - ts;
+  if (diff < 60000) return '刚刚';
+  if (diff < 3600000) return Math.floor(diff / 60000) + '分钟前';
+  if (diff < 86400000) return Math.floor(diff / 3600000) + '小时前';
+  return Math.floor(diff / 86400000) + '天前';
+}
+
+// --- Init ---
+function refreshAll() {
+  fetchPriceMoves();
+  fetchTrades();
+  fetchNewMarkets();
+  fetchSettlements();
+}
+
+refreshAll();
+connectSSE();
+// Price moves still use periodic refresh (they represent top movers computed server-side)
+setInterval(fetchPriceMoves, 5000);
+</script>
+</body>
+</html>

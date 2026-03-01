@@ -1,0 +1,61 @@
+# polyscan 配置文件
+
+log_level: info  # debug, info, warn, error
+
+# HTTP/SOCKS5 代理 (留空则不使用代理)
+proxy: "http://127.0.0.1:7890"
+
+# SQLite 数据库文件路径
+sqlite_path: "data/polyscan.db"
+
+# 大额交易检测阈值 (USD) - 低于此值的交易不会被记录
+large_trade_threshold: 10000
+
+# 大额交易 Telegram 告警价格过滤 (仅价格低于此值的交易发送 Telegram 通知，0 表示不过滤)
+# 注意：所有超过阈值的交易都会保存到数据库并在 Dashboard 显示
+large_trade_max_price: 0.95
+
+# 价格飙升检测规则
+price_spike_rules:
+  - window: 5m
+    percent: 5
+  - window: 10m
+    percent: 10
+  - window: 1h
+    percent: 15
+
+# 市场列表同步间隔
+market_sync_interval: 5m
+
+# 大额交易 REST 轮询间隔 (WebSocket 的兜底)
+trade_poll_interval: 30s
+
+# Telegram 通知配置
+telegram:
+  bot_token: ""   # 从 @BotFather 获取
+  chat_id: ""    # 目标聊天/群组 ID
+
+# 鲸鱼追踪配置
+whale:
+  auto_track: false       # 自动追踪大额交易钱包
+  max_tracked: 200       # 最大追踪数量
+  poll_interval: 30s     # 鲸鱼交易轮询间隔
+  cooldown: 5m           # 同一鲸鱼告警冷却时间
+
+  # 手动配置的鲸鱼钱包 (proxy wallet 地址)
+  addresses: []
+  # - address: "0x1234..."
+  #   alias: "Whale-A"
+  # - address: "0x5678..."
+  #   alias: "Whale-B"
+
+# HTTP API 配置
+api:
+  enabled: true
+  addr: ":9090"    # 监听地址，如 ":8080" 或 "127.0.0.1:8080"
+
+# 数据保留策略 — 超过指定天数的记录会被自动清理 (0 表示不清理，永久保留)
+retention:
+  trades_days: 180        # 大额交易 & 告警保留 180 天
+  markets_days: 3         # 新市场 (内存) & 结算数据保留 3 天
+  price_events_days: 3     # 价格波动事件保留 3 天
