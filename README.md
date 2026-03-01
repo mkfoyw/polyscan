@@ -2,6 +2,8 @@
 
 Polymarket 实时监控工具 —— 追踪大额交易、价格异动、鲸鱼钱包，并通过 Telegram 推送告警，同时提供 Web Dashboard。
 
+![Dashboard](docs/dashboard.png)
+
 ## 功能概览
 
 | 功能 | 说明 |

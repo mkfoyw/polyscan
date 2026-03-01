@@ -230,10 +230,12 @@ func (c *Client) sendDynamicSubscribe(assetIDs []string) {
 			continue
 		}
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		if err := c.conn.Write(ctx, websocket.MessageText, data); err != nil {
-			c.logger.Error("send dynamic subscribe", "error", err)
-		}
+		err = c.conn.Write(ctx, websocket.MessageText, data)
 		cancel()
+		if err != nil {
+			c.logger.Warn("send dynamic subscribe failed, will retry after reconnect", "error", err)
+			return // connection is broken; reconnect loop will re-subscribe all IDs
+		}
 	}
 
 	c.logger.Info("dynamically subscribed to new assets", "count", len(assetIDs))

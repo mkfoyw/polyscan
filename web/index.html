@@ -285,6 +285,8 @@ body {
       <button class="filter-btn" data-window="10m">10分钟</button>
       <button class="filter-btn" data-window="30m">30分钟</button>
       <button class="filter-btn" data-window="1h">1小时</button>
+      <button class="filter-btn" data-window="2h">2小时</button>
+      <button class="filter-btn" data-window="4h">4小时</button>
     </div>
     <div class="list" id="price-list"></div>
   </div>
@@ -296,7 +298,7 @@ body {
       <div class="subtitle">实时追踪大额订单</div>
     </div>
     <div class="filters" id="trade-filters">
-      <button class="filter-btn active" data-min="1000">$1,000+</button>
+      <button class="filter-btn active" data-min="5000">$5,000+</button>
       <button class="filter-btn" data-min="10000">$10,000+</button>
       <button class="filter-btn" data-min="100000">$100,000+</button>
       <button class="filter-btn" data-min="1000000">$1,000,000+</button>
@@ -431,7 +433,7 @@ setupInfiniteScroll('settlement-list', 'settlements', fetchSettlements);
 async function fetchPriceMoves() {
   // Price moves are always a full refresh (top movers change frequently)
   try {
-    const resp = await fetch(`${API}/api/price-moves?window=${priceWindow}&limit=${PAGE_SIZE}`);
+    const resp = await fetch(`${API}/api/price-moves?window=${priceWindow}&limit=50`);
     const data = await resp.json();
     renderPriceMoves(data || []);
   } catch (e) {
@@ -570,6 +572,8 @@ function renderPriceMoveItem(m) {
   const currentCents = (m.current_price * 100).toFixed(1);
   const prevCents = (m.previous_price * 100).toFixed(1);
   const url = m.url || '#';
+  const outcome = m.outcome || '';
+  const outcomeCls = outcome.toLowerCase() === 'yes' ? 'yes' : 'no';
   const img = m.image_url
     ? `<img src="${esc(m.image_url)}" onerror="this.parentElement.innerHTML='📊'">`
     : '📊';
@@ -577,7 +581,7 @@ function renderPriceMoveItem(m) {
     <div class="item-icon">${img}</div>
     <div class="item-body">
       <div class="item-title">${esc(m.question)}</div>
-      <div class="item-meta">最新: ${currentCents}¢ · 之前: ${prevCents}¢</div>
+      <div class="item-meta">${outcome ? `<span class="trade-outcome ${outcomeCls}">${esc(outcome)}</span> · ` : ''}最新: ${currentCents}¢ · 之前: ${prevCents}¢</div>
     </div>
     <div class="item-right">
       <div class="price-change ${cls}">${sign}${changeCents.toFixed(2)}¢</div>
@@ -593,6 +597,12 @@ function renderTrades(trades) {
     return;
   }
   list.innerHTML = trades.map(renderTradeItem).join('');
+}
+
+function tradeKey(t) {
+  // Unique key: prefer transaction_hash, fallback to asset:timestamp
+  if (t.transaction_hash) return 'tx:' + t.transaction_hash;
+  return (t.asset || '') + ':' + (t.timestamp || 0);
 }
 
 function renderTradeItem(t) {
@@ -611,7 +621,9 @@ function renderTradeItem(t) {
   const userTag = profileUrl
     ? `<a class="trade-user" href="${esc(profileUrl)}" target="_blank">${esc(name)}</a>`
     : `<span class="trade-user no-link">${esc(name)}</span>`;
-  return `<div class="item">
+  const key = esc(tradeKey(t));
+  const ts = t.timestamp || 0;
+  return `<div class="item" data-key="${key}" data-ts="${ts}">
     <div class="avatar">${name.charAt(0).toUpperCase()}</div>
     <div class="item-body">
       <div class="trade-header">
@@ -622,7 +634,7 @@ function renderTradeItem(t) {
         <span class="trade-outcome ${outcomeCls}">${esc(t.outcome || '')}</span>
       </div>
       <div class="trade-question">${esc(t.title || '')}</div>
-      <div class="trade-time">${timeAgo}</div>
+      <div class="trade-time" data-ts="${ts}">${timeAgo}</div>
     </div>
   </div>`;
 }
@@ -643,11 +655,12 @@ function renderMarketItem(m) {
     ? `<img src="${esc(m.image_url)}" onerror="this.parentElement.innerHTML='🏛'">`
     : '🏛';
   const cat = m.category ? `<span style="color:#8b949e;font-size:11px;margin-left:4px">${esc(m.category)}</span>` : '';
+  const isoTS = m.first_seen || '';
   return `<a class="item" href="${esc(url)}" target="_blank">
     <div class="item-icon">${img}</div>
     <div class="item-body">
       <div class="item-title">${esc(m.question)}${cat}</div>
-      <div class="item-meta">${timeAgo}</div>
+      <div class="item-meta" data-iso="${esc(isoTS)}">${timeAgo}</div>
     </div>
   </a>`;
 }
@@ -671,6 +684,7 @@ function renderSettlementItem(s) {
   const img = s.image_url
     ? `<img src="${esc(s.image_url)}" onerror="this.parentElement.innerHTML='✅'">`
     : '✅';
+  const isoTS = s.resolved_at || '';
   return `<a class="item" href="${esc(url)}" target="_blank">
     <div class="item-icon-wrap">
       <div class="item-icon">${img}</div>
@@ -678,7 +692,7 @@ function renderSettlementItem(s) {
     </div>
     <div class="item-body">
       <div class="item-title">${esc(s.question)}</div>
-      <div class="item-meta">${timeAgo} · <span class="settlement-outcome ${cls}">${outcome}</span></div>
+      <div class="item-meta" data-iso="${esc(isoTS)}">${timeAgo} · <span class="settlement-outcome ${cls}">${outcome}</span></div>
     </div>
   </a>`;
 }
@@ -696,7 +710,49 @@ function prependTrade(item) {
   const list = document.getElementById('trade-list');
   const empty = list.querySelector('.empty-state');
   if (empty) empty.remove();
-  list.insertAdjacentHTML('afterbegin', renderTradeItem(item));
+
+  const key = tradeKey(item);
+  const ts = item.timestamp || 0;
+
+  // Check USD filter: skip if below current threshold
+  const usdVal = item.usd_value || 0;
+  if (usdVal < tradeMinUSD) return;
+  // Check price filter: skip if above current max price
+  if (tradeMaxPrice > 0 && (item.price || 0) > tradeMaxPrice) return;
+
+  // Deduplicate: if trade already exists by key, update in place
+  const existing = list.querySelector(`[data-key="${CSS.escape(key)}"]`);
+  if (existing) {
+    existing.outerHTML = renderTradeItem(item);
+    return;
+  }
+  // Also check for a WS→REST enrichment: same timestamp ±10s, same asset
+  if (item.transaction_hash && item.asset) {
+    const allItems = list.querySelectorAll('.item[data-ts]');
+    for (const el of allItems) {
+      const elTS = parseInt(el.dataset.ts, 10) || 0;
+      if (Math.abs(ts - elTS) <= 10) {
+        // Close timestamp — likely the same trade enriched by REST
+        el.outerHTML = renderTradeItem(item);
+        return;
+      }
+    }
+  }
+
+  // Insert at correct position (sorted by timestamp DESC = newest first)
+  const items = list.querySelectorAll('.item[data-ts]');
+  let inserted = false;
+  for (const el of items) {
+    const elTS = parseInt(el.dataset.ts, 10) || 0;
+    if (ts > elTS) {
+      el.insertAdjacentHTML('beforebegin', renderTradeItem(item));
+      inserted = true;
+      break;
+    }
+  }
+  if (!inserted) {
+    list.insertAdjacentHTML('beforeend', renderTradeItem(item));
+  }
 }
 
 function appendNewMarkets(items) {
@@ -816,6 +872,28 @@ refreshAll();
 connectSSE();
 // Price moves still use periodic refresh (they represent top movers computed server-side)
 setInterval(fetchPriceMoves, 5000);
+
+// Refresh relative time labels every 30s
+setInterval(function() {
+  // Trades: data-ts is Unix seconds
+  document.querySelectorAll('.trade-time[data-ts]').forEach(el => {
+    const ts = parseInt(el.dataset.ts, 10);
+    if (ts) el.textContent = relativeTime(ts);
+  });
+  // Markets & Settlements: data-iso is ISO string
+  document.querySelectorAll('.item-meta[data-iso]').forEach(el => {
+    const iso = el.dataset.iso;
+    if (!iso) return;
+    // Settlement metas have a child <span> for outcome — preserve it
+    const outcomeSpan = el.querySelector('.settlement-outcome');
+    if (outcomeSpan) {
+      const timeText = relativeTimeISO(iso);
+      el.innerHTML = timeText + ' · ' + outcomeSpan.outerHTML;
+    } else {
+      el.textContent = relativeTimeISO(iso);
+    }
+  });
+}, 30000);
 </script>
 </body>
 </html>
