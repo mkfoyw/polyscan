@@ -269,6 +269,7 @@ func (s *Server) handleWhaleTrades(c *gin.Context) {
 	limit := queryInt(c, "limit", 50)
 	beforeTS := queryInt64(c, "before", 0)
 	afterTS := queryInt64(c, "after", 0)
+	minUSD := queryFloat(c, "min_usd", 0)
 	walletFilter := strings.ToLower(strings.TrimSpace(c.Query("wallet")))
 
 	// Get all tracked whale addresses
@@ -302,7 +303,7 @@ func (s *Server) handleWhaleTrades(c *gin.Context) {
 		return
 	}
 
-	trades, err := s.tradeStore.RecentByWhales(ctx, addrs, int64(limit), beforeTS, afterTS)
+	trades, err := s.tradeStore.RecentByWhales(ctx, addrs, int64(limit), beforeTS, afterTS, minUSD)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return

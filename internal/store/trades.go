@@ -100,7 +100,7 @@ func (s *TradeStore) RecentByWallet(ctx context.Context, wallet string, limit in
 // RecentByWhales returns trades from tracked whale wallets, most recent first.
 // wallets is a list of whale addresses. Supports cursor pagination via beforeTS.
 // If afterTS > 0, only returns trades newer than that timestamp.
-func (s *TradeStore) RecentByWhales(ctx context.Context, wallets []string, limit int64, beforeTS int64, afterTS int64) ([]TradeRecord, error) {
+func (s *TradeStore) RecentByWhales(ctx context.Context, wallets []string, limit int64, beforeTS int64, afterTS int64, minUSD float64) ([]TradeRecord, error) {
 	if len(wallets) == 0 {
 		return nil, nil
 	}
@@ -111,6 +111,10 @@ func (s *TradeStore) RecentByWhales(ctx context.Context, wallets []string, limit
 	args := make([]any, len(wallets))
 	for i, w := range wallets {
 		args[i] = w
+	}
+	if minUSD > 0 {
+		q += ` AND usd_value >= ?`
+		args = append(args, minUSD)
 	}
 	if beforeTS > 0 {
 		q += ` AND timestamp < ?`

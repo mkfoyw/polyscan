@@ -463,6 +463,9 @@ let tradeMinUSD = 5000;
 let tradeMaxPrice = 0;
 let marketCategory = 'all';
 
+// Tracked whale addresses (refreshed on fetchWhaleTrades)
+const whaleAddressSet = new Set();
+
 const paging = {
   trades:       { loading: false, done: false, cursor: null },
   whaleTrades:  { loading: false, done: false, cursor: null },
@@ -583,13 +586,23 @@ async function fetchWhaleTrades(loadMore) {
   if (p.loading) return;
   p.loading = true;
   try {
-    let url = `${API}/api/whale-trades?limit=${PAGE_SIZE}&after=${Math.floor(Date.now()/1000) - 2*86400}`;
+    let url = `${API}/api/whale-trades?limit=${PAGE_SIZE}&min_usd=1000&after=${Math.floor(Date.now()/1000) - 2*86400}`;
     if (loadMore && p.cursor) url += `&before=${p.cursor}`;
     const resp = await fetch(url);
     const data = await resp.json();
     const items = data || [];
     if (items.length < PAGE_SIZE) p.done = true;
     if (items.length > 0) p.cursor = items[items.length - 1].timestamp;
+    // Update whale address set from returned trades
+    if (!loadMore) {
+      whaleAddressSet.clear();
+      // Also fetch whale list to populate the set
+      try {
+        const wr = await fetch(`${API}/api/whales`);
+        const wl = await wr.json();
+        (wl || []).forEach(w => whaleAddressSet.add((w.address || '').toLowerCase()));
+      } catch (_) {}
+    }
     if (loadMore) appendWhaleTrades(items); else renderWhaleTrades(items);
   } catch (e) {
     console.error('fetchWhaleTrades:', e);
@@ -843,8 +856,9 @@ function appendWhaleTrades(items) {
 
 function prependTrade(item) {
   _prependTradeToList('trade-list', item, true);
-  // Also push to whale list if visible (whale-side filtering happens server-side on refresh)
-  if (visibleCols.includes('whale-trades') && item.proxy_wallet) {
+  // Only push to whale list if this wallet is a tracked whale
+  if (visibleCols.includes('whale-trades') && item.proxy_wallet &&
+      whaleAddressSet.has((item.proxy_wallet || '').toLowerCase())) {
     _prependTradeToList('whale-trade-list', item, false);
   }
 }

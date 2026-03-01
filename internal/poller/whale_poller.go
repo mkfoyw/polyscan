@@ -16,12 +16,13 @@ import (
 
 // WhalePoller periodically polls the Data API for recent trades by tracked whale wallets.
 type WhalePoller struct {
-	tracker  *whale.Tracker
-	tradeDB  *store.TradeStore
-	interval time.Duration
-	client   *http.Client
-	alerts   chan<- types.Alert
-	logger   *slog.Logger
+	tracker         *whale.Tracker
+	tradeDB         *store.TradeStore
+	interval        time.Duration
+	minDisplayAmount float64 // skip saving trades below this USD amount
+	client          *http.Client
+	alerts          chan<- types.Alert
+	logger          *slog.Logger
 
 	// ProfileLookup resolves a wallet address to a Polymarket display name.
 	ProfileLookup func(ctx context.Context, proxyWallet string) string
@@ -35,17 +36,19 @@ func NewWhalePoller(
 	tracker *whale.Tracker,
 	tradeDB *store.TradeStore,
 	interval time.Duration,
+	minDisplayAmount float64,
 	alerts chan<- types.Alert,
 	logger *slog.Logger,
 ) *WhalePoller {
 	return &WhalePoller{
-		tracker:      tracker,
-		tradeDB:      tradeDB,
-		interval:     interval,
-		client:       &http.Client{Timeout: 15 * time.Second},
-		alerts:       alerts,
-		logger:       logger,
-		saveInterval: 5 * time.Minute,
+		tracker:          tracker,
+		tradeDB:          tradeDB,
+		interval:         interval,
+		minDisplayAmount: minDisplayAmount,
+		client:           &http.Client{Timeout: 15 * time.Second},
+		alerts:           alerts,
+		logger:           logger,
+		saveInterval:     5 * time.Minute,
 	}
 }
 
@@ -111,6 +114,11 @@ func (wp *WhalePoller) pollAll(ctx context.Context) {
 
 			// Only process trade-type activities
 			if act.Type != "TRADE" {
+				continue
+			}
+
+			// Skip small trades
+			if wp.minDisplayAmount > 0 && act.USDCSize < wp.minDisplayAmount {
 				continue
 			}
 

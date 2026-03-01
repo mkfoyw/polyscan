@@ -63,11 +63,12 @@ type TelegramConfig struct {
 
 // WhaleConfig holds whale tracking settings.
 type WhaleConfig struct {
-	MinTradeAmount float64  `yaml:"min_trade_amount"` // min single-trade USD to trigger auto-track (0 = use large_trade_threshold)
-	MaxBuyPrice    float64  `yaml:"max_buy_price"`    // only auto-track buys with price <= this (0 = no filter)
-	MaxTracked     int      `yaml:"max_tracked"`      // max tracked wallets
-	PollInterval   Duration `yaml:"poll_interval"`    // per-whale poll interval
-	Cooldown       Duration `yaml:"cooldown"`         // cooldown between alerts for same whale
+	MinTradeAmount    float64  `yaml:"min_trade_amount"`    // min single-trade USD to trigger auto-track (0 = use large_trade_threshold)
+	MaxBuyPrice       float64  `yaml:"max_buy_price"`       // only auto-track buys with price <= this (0 = no filter)
+	MinDisplayAmount  float64  `yaml:"min_display_amount"`  // min USD to save/display whale trades (0 = no filter)
+	MaxTracked        int      `yaml:"max_tracked"`         // max tracked wallets
+	PollInterval      Duration `yaml:"poll_interval"`       // per-whale poll interval
+	Cooldown          Duration `yaml:"cooldown"`            // cooldown between alerts for same whale
 }
 
 // APIConfig holds HTTP API server settings.

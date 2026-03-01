@@ -162,7 +162,7 @@ func main() {
 	}
 
 	// 9. Whale poller
-	whalePoller := poller.NewWhalePoller(whaleTracker, tradeStore, cfg.Whale.PollInterval.Duration, alertCh, logger)
+	whalePoller := poller.NewWhalePoller(whaleTracker, tradeStore, cfg.Whale.PollInterval.Duration, cfg.Whale.MinDisplayAmount, alertCh, logger)
 	whalePoller.ProfileLookup = profileClient.Lookup
 
 	// --- Start all goroutines ---
