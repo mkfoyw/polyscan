@@ -16,13 +16,13 @@ import (
 
 // WhalePoller periodically polls the Data API for recent trades by tracked whale wallets.
 type WhalePoller struct {
-	tracker         *whale.Tracker
-	tradeDB         *store.TradeStore
-	interval        time.Duration
+	tracker          *whale.Tracker
+	whaleTradDB      *store.WhaleTradStore
+	interval         time.Duration
 	minDisplayAmount float64 // skip saving trades below this USD amount
-	client          *http.Client
-	alerts          chan<- types.Alert
-	logger          *slog.Logger
+	client           *http.Client
+	alerts           chan<- types.Alert
+	logger           *slog.Logger
 
 	// ProfileLookup resolves a wallet address to a Polymarket display name.
 	ProfileLookup func(ctx context.Context, proxyWallet string) string
@@ -34,7 +34,7 @@ type WhalePoller struct {
 // NewWhalePoller creates a new whale poller.
 func NewWhalePoller(
 	tracker *whale.Tracker,
-	tradeDB *store.TradeStore,
+	whaleTradDB *store.WhaleTradStore,
 	interval time.Duration,
 	minDisplayAmount float64,
 	alerts chan<- types.Alert,
@@ -42,7 +42,7 @@ func NewWhalePoller(
 ) *WhalePoller {
 	return &WhalePoller{
 		tracker:          tracker,
-		tradeDB:          tradeDB,
+		whaleTradDB:      whaleTradDB,
 		interval:         interval,
 		minDisplayAmount: minDisplayAmount,
 		client:           &http.Client{Timeout: 15 * time.Second},
@@ -106,6 +106,7 @@ func (wp *WhalePoller) pollAll(ctx context.Context) {
 		}
 
 		newCount := 0
+		profileUpdated := false
 		for _, act := range activities {
 			// Only process trades newer than last poll
 			if act.Timestamp <= w.LastPollTS {
@@ -126,21 +127,17 @@ func (wp *WhalePoller) pollAll(ctx context.Context) {
 			wp.tracker.UpdateVolume(ctx, w.Address, act.USDCSize)
 			wp.sendAlert(ctx, w, &act)
 
-			// Resolve profile name: prefer activity API name, then alias, then lookup
-			profileName := act.Name
-			if profileName == "" && w.Alias != "" {
-				profileName = w.Alias
-			}
-			if profileName == "" && wp.ProfileLookup != nil {
-				profileName = wp.ProfileLookup(ctx, w.Address)
+			// Update whale profile from activity data (name/pseudonym).
+			// Only do this once per poll cycle.
+			if !profileUpdated && (act.Name != "" || act.Pseudonym != "") {
+				wp.tracker.UpdateProfile(ctx, w.Address, act.Name, act.Pseudonym)
+				profileUpdated = true
 			}
 
-			// Persist whale trade
-			if wp.tradeDB != nil {
-				rec := &store.TradeRecord{
+			// Persist whale trade to dedicated whale_trades table
+			if wp.whaleTradDB != nil {
+				rec := &store.WhaleTrade{
 					ProxyWallet:     w.Address,
-					Pseudonym:       act.Pseudonym,
-					ProfileName:     profileName,
 					Side:            act.Side,
 					Asset:           act.Asset,
 					ConditionID:     act.ConditionID,
@@ -153,11 +150,18 @@ func (wp *WhalePoller) pollAll(ctx context.Context) {
 					EventSlug:       act.EventSlug,
 					Outcome:         act.Outcome,
 					TransactionHash: act.TransactionHash,
-					Source:          "whale",
 				}
-				if err := wp.tradeDB.Insert(ctx, rec); err != nil {
+				if err := wp.whaleTradDB.Insert(ctx, rec); err != nil {
 					wp.logger.Error("failed to persist whale trade", "error", err)
 				}
+			}
+		}
+
+		// If activity didn't provide profile name and whale has no name/alias yet,
+		// try the external profile API (primes cache + stores on whale_users)
+		if !profileUpdated && w.Alias == "" && w.Name == "" && wp.ProfileLookup != nil {
+			if name := wp.ProfileLookup(ctx, w.Address); name != "" {
+				wp.tracker.UpdateProfile(ctx, w.Address, name, "")
 			}
 		}
 

@@ -15,7 +15,8 @@ type AlertRecord struct {
 
 // AlertStore wraps the alerts table.
 type AlertStore struct {
-	db *sql.DB
+	rdb *sql.DB // reader pool
+	wdb *sql.DB // writer pool
 }
 
 func scanAlert(sc interface{ Scan(...any) error }) (AlertRecord, error) {
@@ -45,7 +46,7 @@ func scanAlerts(rows *sql.Rows) ([]AlertRecord, error) {
 // Insert saves an alert record.
 func (s *AlertStore) Insert(ctx context.Context, rec *AlertRecord) error {
 	rec.CreatedAt = time.Now()
-	_, err := s.db.ExecContext(ctx,
+	_, err := s.wdb.ExecContext(ctx,
 		`INSERT INTO alerts (type, message, created_at) VALUES (?,?,?)`,
 		rec.Type, rec.Message, rec.CreatedAt.Unix())
 	return err
@@ -53,7 +54,7 @@ func (s *AlertStore) Insert(ctx context.Context, rec *AlertRecord) error {
 
 // Recent returns the N most recent alerts.
 func (s *AlertStore) Recent(ctx context.Context, limit int64) ([]AlertRecord, error) {
-	rows, err := s.db.QueryContext(ctx,
+	rows, err := s.rdb.QueryContext(ctx,
 		`SELECT type, message, created_at FROM alerts ORDER BY created_at DESC LIMIT ?`, limit)
 	if err != nil {
 		return nil, err
@@ -63,7 +64,7 @@ func (s *AlertStore) Recent(ctx context.Context, limit int64) ([]AlertRecord, er
 
 // DeleteOlderThan removes alert records with created_at before the given cutoff.
 func (s *AlertStore) DeleteOlderThan(ctx context.Context, cutoff time.Time) (int64, error) {
-	res, err := s.db.ExecContext(ctx,
+	res, err := s.wdb.ExecContext(ctx,
 		`DELETE FROM alerts WHERE created_at < ?`, cutoff.Unix())
 	if err != nil {
 		return 0, err
@@ -73,7 +74,7 @@ func (s *AlertStore) DeleteOlderThan(ctx context.Context, cutoff time.Time) (int
 
 // RecentByType returns recent alerts of a given type.
 func (s *AlertStore) RecentByType(ctx context.Context, alertType string, limit int64) ([]AlertRecord, error) {
-	rows, err := s.db.QueryContext(ctx,
+	rows, err := s.rdb.QueryContext(ctx,
 		`SELECT type, message, created_at FROM alerts
 		 WHERE type = ? ORDER BY created_at DESC LIMIT ?`, alertType, limit)
 	if err != nil {
@@ -85,6 +86,6 @@ func (s *AlertStore) RecentByType(ctx context.Context, alertType string, limit i
 // Count returns the total number of alert records.
 func (s *AlertStore) Count(ctx context.Context) (int64, error) {
 	var n int64
-	err := s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM alerts`).Scan(&n)
+	err := s.rdb.QueryRowContext(ctx, `SELECT COUNT(*) FROM alerts`).Scan(&n)
 	return n, err
 }

@@ -19,7 +19,8 @@ type SettlementRecord struct {
 
 // SettlementStore wraps the settlements table.
 type SettlementStore struct {
-	db *sql.DB
+	rdb *sql.DB // reader pool
+	wdb *sql.DB // writer pool
 }
 
 func scanSettlement(sc interface{ Scan(...any) error }) (SettlementRecord, error) {
@@ -53,7 +54,7 @@ func (s *SettlementStore) Upsert(ctx context.Context, rec *SettlementRecord) err
 	if rec.ResolvedAt.IsZero() {
 		rec.ResolvedAt = time.Now()
 	}
-	_, err := s.db.ExecContext(ctx, `
+	_, err := s.wdb.ExecContext(ctx, `
 		INSERT INTO settlements (condition_id, question, slug, event_slug, outcome, image_url, resolved_at)
 		VALUES (?,?,?,?,?,?,?)
 		ON CONFLICT(condition_id) DO UPDATE SET
@@ -80,7 +81,7 @@ func (s *SettlementStore) Recent(ctx context.Context, limit int64, before time.T
 	}
 	q += ` ORDER BY resolved_at DESC LIMIT ?`
 	args = append(args, limit)
-	rows, err := s.db.QueryContext(ctx, q, args...)
+	rows, err := s.rdb.QueryContext(ctx, q, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -90,13 +91,13 @@ func (s *SettlementStore) Recent(ctx context.Context, limit int64, before time.T
 // Count returns the total number of settlement records.
 func (s *SettlementStore) Count(ctx context.Context) (int64, error) {
 	var n int64
-	err := s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM settlements`).Scan(&n)
+	err := s.rdb.QueryRowContext(ctx, `SELECT COUNT(*) FROM settlements`).Scan(&n)
 	return n, err
 }
 
 // DeleteOlderThan removes settlement records with resolved_at before the given cutoff.
 func (s *SettlementStore) DeleteOlderThan(ctx context.Context, cutoff time.Time) (int64, error) {
-	res, err := s.db.ExecContext(ctx,
+	res, err := s.wdb.ExecContext(ctx,
 		`DELETE FROM settlements WHERE resolved_at < ?`, cutoff.Unix())
 	if err != nil {
 		return 0, err

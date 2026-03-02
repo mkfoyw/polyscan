@@ -10,7 +10,6 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
-	"github.com/mkfoyw/polyscan/internal/profile"
 	"github.com/mkfoyw/polyscan/internal/store"
 	"github.com/mkfoyw/polyscan/internal/types"
 	"github.com/mkfoyw/polyscan/internal/whale"
@@ -22,10 +21,10 @@ type Server struct {
 	tradeStore      *store.TradeStore
 	alertStore      *store.AlertStore
 	whaleStore      *store.WhaleStore
+	whaleTradStore  *store.WhaleTradStore
 	priceStore      *store.PriceEventStore
 	settlementStore *store.SettlementStore
 	tracker         *whale.Tracker
-	profileClient   *profile.Client
 	adminTokens     map[string]struct{}
 	topMoversFn     func(time.Duration, int) []types.PriceMover
 	broker          *Broker
@@ -41,10 +40,10 @@ func NewServer(
 	tradeStore *store.TradeStore,
 	alertStore *store.AlertStore,
 	whaleStore *store.WhaleStore,
+	whaleTradStore *store.WhaleTradStore,
 	priceStore *store.PriceEventStore,
 	settlementStore *store.SettlementStore,
 	tracker *whale.Tracker,
-	profileClient *profile.Client,
 	topMoversFn func(time.Duration, int) []types.PriceMover,
 	broker *Broker,
 	logger *slog.Logger,
@@ -54,10 +53,10 @@ func NewServer(
 		tradeStore:      tradeStore,
 		alertStore:      alertStore,
 		whaleStore:      whaleStore,
+		whaleTradStore:  whaleTradStore,
 		priceStore:      priceStore,
 		settlementStore: settlementStore,
 		tracker:         tracker,
-		profileClient:   profileClient,
 		adminTokens:     toSet(adminTokens),
 		topMoversFn:     topMoversFn,
 		broker:          broker,
@@ -138,6 +137,7 @@ func (s *Server) handleStats(c *gin.Context) {
 	tradeCount, _ := s.tradeStore.Count(ctx)
 	alertCount, _ := s.alertStore.Count(ctx)
 	whaleCount, _ := s.whaleStore.Count(ctx)
+	whaleTradeCount, _ := s.whaleTradStore.Count(ctx)
 	priceEventCount, _ := s.priceStore.Count(ctx)
 
 	c.JSON(http.StatusOK, gin.H{
@@ -145,6 +145,7 @@ func (s *Server) handleStats(c *gin.Context) {
 		"trades":       tradeCount,
 		"alerts":       alertCount,
 		"whales":       whaleCount,
+		"whale_trades": whaleTradeCount,
 		"price_events": priceEventCount,
 	})
 }
@@ -226,38 +227,17 @@ func (s *Server) handleWhales(c *gin.Context) {
 		return
 	}
 
-	// Collect addresses that have no alias to resolve profile names
-	var needProfile []string
-	for _, w := range whales {
-		if w.Alias == "" {
-			needProfile = append(needProfile, w.Address)
-		}
-	}
-
-	// Build response with optional profile_name field
+	// Build response with display_name resolved from whale_users table directly
 	type whaleResp struct {
 		store.WhaleRecord
-		ProfileName string `json:"profile_name,omitempty"`
-	}
-
-	profileMap := make(map[string]string)
-	if len(needProfile) > 0 {
-		if pm, err := s.tradeStore.ProfileNamesForWallets(ctx, needProfile); err == nil {
-			profileMap = pm
-		}
+		DisplayName string `json:"display_name,omitempty"`
 	}
 
 	resp := make([]whaleResp, len(whales))
 	for i, w := range whales {
-		resp[i] = whaleResp{WhaleRecord: w}
-		if w.Alias == "" {
-			if name, ok := profileMap[w.Address]; ok && name != "" {
-				resp[i].ProfileName = name
-			} else if s.profileClient != nil {
-				if name := s.profileClient.Lookup(ctx, w.Address); name != "" {
-					resp[i].ProfileName = name
-				}
-			}
+		resp[i] = whaleResp{
+			WhaleRecord: w,
+			DisplayName: w.DisplayName(),
 		}
 	}
 
@@ -279,16 +259,15 @@ func (s *Server) handleWhaleTrades(c *gin.Context) {
 		return
 	}
 	if len(whales) == 0 {
-		c.JSON(http.StatusOK, []store.TradeRecord{})
+		c.JSON(http.StatusOK, []store.WhaleTrade{})
 		return
 	}
 
-	aliasMap := make(map[string]string, len(whales))
+	// Build display name map from whale_users table directly
+	nameMap := make(map[string]string, len(whales))
 	var addrs []string
 	for _, w := range whales {
-		if w.Alias != "" {
-			aliasMap[w.Address] = w.Alias
-		}
+		nameMap[w.Address] = w.DisplayName()
 		// If wallet filter specified, only query that one address
 		if walletFilter != "" {
 			if strings.EqualFold(w.Address, walletFilter) {
@@ -299,24 +278,20 @@ func (s *Server) handleWhaleTrades(c *gin.Context) {
 		}
 	}
 	if len(addrs) == 0 {
-		c.JSON(http.StatusOK, []store.TradeRecord{})
+		c.JSON(http.StatusOK, []store.WhaleTrade{})
 		return
 	}
 
-	trades, err := s.tradeStore.RecentByWhales(ctx, addrs, int64(limit), beforeTS, afterTS, minUSD)
+	trades, err := s.whaleTradStore.Recent(ctx, addrs, int64(limit), beforeTS, afterTS, minUSD)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
 
-	// Enrich trades that have no profile name
+	// Enrich trades with display names from whale_users
 	for i := range trades {
-		if trades[i].ProfileName == "" {
-			if alias, ok := aliasMap[trades[i].ProxyWallet]; ok && alias != "" {
-				trades[i].ProfileName = alias
-			} else if s.profileClient != nil {
-				trades[i].ProfileName = s.profileClient.Lookup(ctx, trades[i].ProxyWallet)
-			}
+		if name, ok := nameMap[trades[i].ProxyWallet]; ok && name != trades[i].ProxyWallet {
+			trades[i].ProfileName = name
 		}
 	}
 
@@ -403,12 +378,20 @@ func (s *Server) handleWhaleDetail(c *gin.Context) {
 		return
 	}
 
-	// Also fetch recent trades
+	// Fetch recent trades from whale_trades table
 	limit := queryInt(c, "limit", 20)
-	trades, err := s.tradeStore.RecentByWallet(ctx, address, int64(limit))
+	trades, err := s.whaleTradStore.RecentByWallet(ctx, address, int64(limit))
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
+	}
+
+	// Enrich trades with display name from whale_users
+	dn := whaleRec.DisplayName()
+	if dn != whaleRec.Address {
+		for i := range trades {
+			trades[i].ProfileName = dn
+		}
 	}
 
 	c.JSON(http.StatusOK, gin.H{
@@ -622,6 +605,7 @@ func corsMiddleware() gin.HandlerFunc {
 		c.Header("Access-Control-Allow-Origin", "*")
 		c.Header("Access-Control-Allow-Methods", "GET, OPTIONS")
 		c.Header("Access-Control-Allow-Headers", "Content-Type, Authorization")
+		c.Header("Cache-Control", "no-store")
 
 		if c.Request.Method == http.MethodOptions {
 			c.AbortWithStatus(http.StatusNoContent)

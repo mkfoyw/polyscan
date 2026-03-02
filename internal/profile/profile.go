@@ -6,21 +6,21 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
-	"sync"
 	"time"
+
+	"github.com/mkfoyw/polyscan/internal/store"
 )
 
 const (
-	baseURL    = "https://gamma-api.polymarket.com/public-profile"
-	maxCacheSz = 10000
+	baseURL = "https://gamma-api.polymarket.com/public-profile"
 )
 
 // Profile is the public profile returned by Polymarket.
 type Profile struct {
-	Name                   string `json:"name"`
-	Pseudonym              string `json:"pseudonym"`
-	ProfileImage           string `json:"profileImage"`
-	DisplayUsernamePublic  *bool  `json:"displayUsernamePublic"`
+	Name                  string `json:"name"`
+	Pseudonym             string `json:"pseudonym"`
+	ProfileImage          string `json:"profileImage"`
+	DisplayUsernamePublic *bool  `json:"displayUsernamePublic"`
 }
 
 // DisplayName returns the best display name: user-chosen name first, else pseudonym.
@@ -31,64 +31,61 @@ func (p *Profile) DisplayName() string {
 	return p.Pseudonym
 }
 
-// Client fetches and caches Polymarket public profiles.
+// Client fetches Polymarket public profiles, caching in a SQLite profiles table.
+// Profiles are refreshed from the external API only when the cached entry is stale.
 type Client struct {
-	http   *http.Client
-	logger *slog.Logger
-
-	mu    sync.RWMutex
-	cache map[string]*cacheEntry // proxyWallet -> entry
+	http          *http.Client
+	logger        *slog.Logger
+	profileStore  *store.ProfileStore
+	staleDuration time.Duration
 }
 
-type cacheEntry struct {
-	profile *Profile
-	at      time.Time
-}
-
-// NewClient creates a new profile client.
-func NewClient(logger *slog.Logger) *Client {
+// NewClient creates a new profile client backed by a ProfileStore.
+// staleDuration controls how long a cached profile is considered fresh (0 = 24h default).
+func NewClient(logger *slog.Logger, profileStore *store.ProfileStore, staleDuration time.Duration) *Client {
+	if staleDuration <= 0 {
+		staleDuration = 24 * time.Hour
+	}
 	return &Client{
-		http: &http.Client{Timeout: 10 * time.Second},
-		logger: logger,
-		cache:  make(map[string]*cacheEntry, 256),
+		http:          &http.Client{Timeout: 10 * time.Second},
+		logger:        logger,
+		profileStore:  profileStore,
+		staleDuration: staleDuration,
 	}
 }
 
 // Lookup returns the display name for a wallet address.
-// Results are cached for 1 hour. Returns "" if lookup fails.
+// Checks the DB cache first; only calls the external API if the cache is stale or missing.
+// Returns "" if lookup fails.
 func (c *Client) Lookup(ctx context.Context, proxyWallet string) string {
 	if proxyWallet == "" {
 		return ""
 	}
 
-	// Check cache
-	c.mu.RLock()
-	if e, ok := c.cache[proxyWallet]; ok && time.Since(e.at) < time.Hour {
-		c.mu.RUnlock()
-		return e.profile.DisplayName()
+	// Check DB cache
+	if c.profileStore != nil {
+		rec, err := c.profileStore.Get(ctx, proxyWallet)
+		if err == nil && rec != nil && time.Since(rec.FetchedAt) < c.staleDuration {
+			return rec.DisplayName()
+		}
 	}
-	c.mu.RUnlock()
 
-	// Fetch from API
+	// Fetch from external API
 	p, err := c.fetch(ctx, proxyWallet)
 	if err != nil {
 		c.logger.Debug("profile lookup failed", "wallet", proxyWallet, "error", err)
 		return ""
 	}
 
-	// Cache result
-	c.mu.Lock()
-	// Evict randomly if cache too large
-	if len(c.cache) >= maxCacheSz {
-		for k := range c.cache {
-			delete(c.cache, k)
-			if len(c.cache) < maxCacheSz/2 {
-				break
-			}
-		}
+	// Persist to DB cache
+	if c.profileStore != nil {
+		_ = c.profileStore.Upsert(ctx, &store.ProfileRecord{
+			Address:   proxyWallet,
+			Name:      p.Name,
+			Pseudonym: p.Pseudonym,
+			FetchedAt: time.Now(),
+		})
 	}
-	c.cache[proxyWallet] = &cacheEntry{profile: p, at: time.Now()}
-	c.mu.Unlock()
 
 	return p.DisplayName()
 }

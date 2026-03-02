@@ -3,7 +3,6 @@ package store
 import (
 	"context"
 	"database/sql"
-	"strings"
 	"time"
 )
 
@@ -30,7 +29,8 @@ type TradeRecord struct {
 
 // TradeStore wraps the trades table.
 type TradeStore struct {
-	db *sql.DB
+	rdb *sql.DB // reader pool
+	wdb *sql.DB // writer pool
 }
 
 const tradeCols = `proxy_wallet, pseudonym, profile_name, side, asset, condition_id,
@@ -70,7 +70,7 @@ func scanTrades(rows *sql.Rows) ([]TradeRecord, error) {
 // Insert inserts a trade record. Duplicates (same transaction_hash) are silently ignored.
 func (s *TradeStore) Insert(ctx context.Context, rec *TradeRecord) error {
 	rec.CreatedAt = time.Now()
-	_, err := s.db.ExecContext(ctx, `
+	_, err := s.wdb.ExecContext(ctx, `
 		INSERT INTO trades (`+tradeCols+`)
 		VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
 		rec.ProxyWallet, rec.Pseudonym, rec.ProfileName,
@@ -87,47 +87,10 @@ func (s *TradeStore) Insert(ctx context.Context, rec *TradeRecord) error {
 
 // RecentByWallet returns the N most recent trades for a wallet.
 func (s *TradeStore) RecentByWallet(ctx context.Context, wallet string, limit int64) ([]TradeRecord, error) {
-	rows, err := s.db.QueryContext(ctx, `
+	rows, err := s.rdb.QueryContext(ctx, `
 		SELECT `+tradeCols+` FROM trades
 		WHERE proxy_wallet = ?
 		ORDER BY timestamp DESC LIMIT ?`, wallet, limit)
-	if err != nil {
-		return nil, err
-	}
-	return scanTrades(rows)
-}
-
-// RecentByWhales returns trades from tracked whale wallets, most recent first.
-// wallets is a list of whale addresses. Supports cursor pagination via beforeTS.
-// If afterTS > 0, only returns trades newer than that timestamp.
-func (s *TradeStore) RecentByWhales(ctx context.Context, wallets []string, limit int64, beforeTS int64, afterTS int64, minUSD float64) ([]TradeRecord, error) {
-	if len(wallets) == 0 {
-		return nil, nil
-	}
-	placeholders := strings.Repeat("?,", len(wallets))
-	placeholders = placeholders[:len(placeholders)-1] // trim trailing comma
-
-	q := `SELECT ` + tradeCols + ` FROM trades WHERE proxy_wallet IN (` + placeholders + `)`
-	args := make([]any, len(wallets))
-	for i, w := range wallets {
-		args[i] = w
-	}
-	if minUSD > 0 {
-		q += ` AND usd_value >= ?`
-		args = append(args, minUSD)
-	}
-	if beforeTS > 0 {
-		q += ` AND timestamp < ?`
-		args = append(args, beforeTS)
-	}
-	if afterTS > 0 {
-		q += ` AND timestamp > ?`
-		args = append(args, afterTS)
-	}
-	q += ` ORDER BY timestamp DESC LIMIT ?`
-	args = append(args, limit)
-
-	rows, err := s.db.QueryContext(ctx, q, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -151,7 +114,7 @@ func (s *TradeStore) RecentLarge(ctx context.Context, minUSD float64, limit int6
 	q += ` ORDER BY timestamp DESC LIMIT ?`
 	args = append(args, limit)
 
-	rows, err := s.db.QueryContext(ctx, q, args...)
+	rows, err := s.rdb.QueryContext(ctx, q, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -164,7 +127,7 @@ func (s *TradeStore) ExistsByTxHash(ctx context.Context, txHash string) (bool, e
 		return false, nil
 	}
 	var n int
-	err := s.db.QueryRowContext(ctx,
+	err := s.rdb.QueryRowContext(ctx,
 		`SELECT 1 FROM trades WHERE transaction_hash = ? LIMIT 1`, txHash).Scan(&n)
 	if err == sql.ErrNoRows {
 		return false, nil
@@ -183,7 +146,7 @@ func (s *TradeStore) Recent(ctx context.Context, limit int64, beforeTS int64) ([
 	}
 	q += ` ORDER BY timestamp DESC LIMIT ?`
 	args = append(args, limit)
-	rows, err := s.db.QueryContext(ctx, q, args...)
+	rows, err := s.rdb.QueryContext(ctx, q, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -193,13 +156,13 @@ func (s *TradeStore) Recent(ctx context.Context, limit int64, beforeTS int64) ([
 // Count returns the total number of trade records.
 func (s *TradeStore) Count(ctx context.Context) (int64, error) {
 	var n int64
-	err := s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM trades`).Scan(&n)
+	err := s.rdb.QueryRowContext(ctx, `SELECT COUNT(*) FROM trades`).Scan(&n)
 	return n, err
 }
 
 // DeleteOlderThan removes trade records with created_at before the given cutoff.
 func (s *TradeStore) DeleteOlderThan(ctx context.Context, cutoff time.Time) (int64, error) {
-	res, err := s.db.ExecContext(ctx,
+	res, err := s.wdb.ExecContext(ctx,
 		`DELETE FROM trades WHERE created_at < ?`, cutoff.Unix())
 	if err != nil {
 		return 0, err
@@ -217,14 +180,14 @@ func (s *TradeStore) EnrichByAssetTimestamp(ctx context.Context, asset string, t
 	}
 	q += ` WHERE asset=? AND timestamp=? AND source='ws'`
 	args = append(args, asset, timestamp)
-	_, err := s.db.ExecContext(ctx, q, args...)
+	_, err := s.wdb.ExecContext(ctx, q, args...)
 	return err
 }
 
 // UpsertRESTTrade either enriches an existing WS trade (same asset, size, timestamp ±10s)
 // with REST wallet info, or inserts a new REST record if no WS match found.
 func (s *TradeStore) UpsertRESTTrade(ctx context.Context, rec *TradeRecord) error {
-	tx, err := s.db.BeginTx(ctx, nil)
+	tx, err := s.wdb.BeginTx(ctx, nil)
 	if err != nil {
 		return err
 	}
@@ -278,47 +241,4 @@ func (s *TradeStore) UpsertRESTTrade(ctx context.Context, rec *TradeRecord) erro
 		return err
 	}
 	return tx.Commit()
-}
-
-// isUniqueViolation checks whether the error is a SQLite UNIQUE constraint failure.
-func isUniqueViolation(err error) bool {
-	if err == nil {
-		return false
-	}
-	return strings.Contains(err.Error(), "UNIQUE constraint failed")
-}
-
-// ProfileNamesForWallets returns a map of wallet address → profile_name
-// by picking the most recently used non-empty profile_name from the trades table.
-func (s *TradeStore) ProfileNamesForWallets(ctx context.Context, wallets []string) (map[string]string, error) {
-	if len(wallets) == 0 {
-		return nil, nil
-	}
-	placeholders := strings.Repeat("?,", len(wallets))
-	placeholders = placeholders[:len(placeholders)-1]
-
-	q := `SELECT proxy_wallet, profile_name FROM trades
-		WHERE proxy_wallet IN (` + placeholders + `) AND profile_name != ''
-		GROUP BY proxy_wallet
-		HAVING timestamp = MAX(timestamp)`
-	args := make([]any, len(wallets))
-	for i, w := range wallets {
-		args[i] = w
-	}
-
-	rows, err := s.db.QueryContext(ctx, q, args...)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
-	m := make(map[string]string, len(wallets))
-	for rows.Next() {
-		var addr, name string
-		if err := rows.Scan(&addr, &name); err != nil {
-			return nil, err
-		}
-		m[addr] = name
-	}
-	return m, rows.Err()
 }

@@ -84,6 +84,8 @@ func main() {
 	tradeStore := db.Trades()
 	alertStore := db.Alerts()
 	whaleStore := db.Whales()
+	whaleTradStore := db.WhaleTrades()
+	profileStore := db.Profiles()
 	priceEventStore := db.PriceEvents()
 	settlementStore := db.Settlements()
 
@@ -109,7 +111,8 @@ func main() {
 	largeTradeMon := monitor.NewLargeTrade(cfg.LargeTradeThreshold, cfg.LargeTradeMaxPrice, mktStore, tradeStore, alertCh, nil, logger)
 
 	// 5b. Profile client — resolves wallet addresses to Polymarket usernames
-	profileClient := profile.NewClient(logger)
+	//     Uses the profiles table as a persistent cache; only calls external API when stale (24h).
+	profileClient := profile.NewClient(logger, profileStore, 24*time.Hour)
 	largeTradeMon.ProfileLookup = profileClient.Lookup
 
 	// 6. Price spike monitor
@@ -162,7 +165,7 @@ func main() {
 	}
 
 	// 9. Whale poller
-	whalePoller := poller.NewWhalePoller(whaleTracker, tradeStore, cfg.Whale.PollInterval.Duration, cfg.Whale.MinDisplayAmount, alertCh, logger)
+	whalePoller := poller.NewWhalePoller(whaleTracker, whaleTradStore, cfg.Whale.PollInterval.Duration, cfg.Whale.MinDisplayAmount, alertCh, logger)
 	whalePoller.ProfileLookup = profileClient.Lookup
 
 	// --- Start all goroutines ---
@@ -276,6 +279,11 @@ func main() {
 					} else if n > 0 {
 						logger.Info("pruned old trades", "deleted", n)
 					}
+					if n, err := whaleTradStore.DeleteOlderThan(ctx, cutoff); err != nil {
+						logger.Error("cleanup whale_trades failed", "error", err)
+					} else if n > 0 {
+						logger.Info("pruned old whale trades", "deleted", n)
+					}
 					if n, err := alertStore.DeleteOlderThan(ctx, cutoff); err != nil {
 						logger.Error("cleanup alerts failed", "error", err)
 					} else if n > 0 {
@@ -325,10 +333,10 @@ func main() {
 			tradeStore,
 			alertStore,
 			whaleStore,
+			whaleTradStore,
 			priceEventStore,
 			settlementStore,
 			whaleTracker,
-			profileClient,
 			priceSpikeMon.TopMovers,
 			broker,
 			logger,

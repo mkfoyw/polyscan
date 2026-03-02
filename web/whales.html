@@ -24,10 +24,8 @@ a{color:var(--blue);text-decoration:none}a:hover{text-decoration:underline}
 .btn-topbar.active{border-color:var(--blue);color:var(--blue);background:rgba(88,166,255,.08)}
 
 /* Whale bubble bar */
-.bubble-bar{background:var(--bg2);border-bottom:1px solid var(--border2);padding:12px 20px;flex-shrink:0;overflow:hidden}
-.bubble-row{display:flex;gap:10px;overflow-x:auto;padding-bottom:4px;scrollbar-width:thin}
-.bubble-row::-webkit-scrollbar{height:4px}
-.bubble-row::-webkit-scrollbar-thumb{background:var(--border2);border-radius:2px}
+.bubble-bar{background:var(--bg2);border-bottom:1px solid var(--border2);padding:12px 20px;flex-shrink:0;overflow-y:auto;max-height:200px}
+.bubble-row{display:flex;flex-wrap:wrap;gap:10px;padding-bottom:4px}
 
 .bubble{display:flex;align-items:center;gap:8px;padding:8px 14px;border-radius:20px;border:1px solid var(--border2);background:var(--bg3);cursor:pointer;white-space:nowrap;transition:all .15s;flex-shrink:0;user-select:none}
 .bubble:hover{border-color:var(--blue);background:rgba(88,166,255,.06)}
@@ -257,6 +255,12 @@ async function loadWhales() {
   try {
     const resp = await fetch(API + '/api/whales');
     allWhales = (await resp.json()) || [];
+    // Sort by first_seen_at descending (newest first)
+    allWhales.sort((a, b) => {
+      const ta = a.first_seen_at ? new Date(a.first_seen_at).getTime() : 0;
+      const tb = b.first_seen_at ? new Date(b.first_seen_at).getTime() : 0;
+      return tb - ta;
+    });
     renderBubbles();
     // Fetch recent trades to determine last trade time per whale
     resolveLastTradeTimes();
@@ -280,8 +284,6 @@ async function resolveLastTradeTimes() {
         profileNameCache[addr] = t.profile_name;
       }
     }
-    // Re-sort and re-render bubbles by last trade time
-    allWhales.sort((a, b) => (whaleLastTrade[b.address] || 0) - (whaleLastTrade[a.address] || 0));
     renderBubbles();
   } catch (e) { /* silent */ }
 }

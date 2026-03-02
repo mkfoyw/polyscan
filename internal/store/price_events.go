@@ -21,7 +21,8 @@ type PriceEventRecord struct {
 
 // PriceEventStore wraps the price_events table.
 type PriceEventStore struct {
-	db *sql.DB
+	rdb *sql.DB // reader pool
+	wdb *sql.DB // writer pool
 }
 
 func scanPriceEvent(sc interface{ Scan(...any) error }) (PriceEventRecord, error) {
@@ -52,7 +53,7 @@ func scanPriceEvents(rows *sql.Rows) ([]PriceEventRecord, error) {
 // Insert saves a price spike event.
 func (s *PriceEventStore) Insert(ctx context.Context, rec *PriceEventRecord) error {
 	rec.DetectedAt = time.Now()
-	_, err := s.db.ExecContext(ctx, `
+	_, err := s.wdb.ExecContext(ctx, `
 		INSERT INTO price_events (asset_id, market, question, outcome, window, pct_change, old_price, new_price, detected_at)
 		VALUES (?,?,?,?,?,?,?,?,?)`,
 		rec.AssetID, rec.Market, rec.Question, rec.Outcome,
@@ -64,7 +65,7 @@ func (s *PriceEventStore) Insert(ctx context.Context, rec *PriceEventRecord) err
 
 // RecentByAsset returns recent price events for a given asset.
 func (s *PriceEventStore) RecentByAsset(ctx context.Context, assetID string, limit int64) ([]PriceEventRecord, error) {
-	rows, err := s.db.QueryContext(ctx, `
+	rows, err := s.rdb.QueryContext(ctx, `
 		SELECT asset_id, market, question, outcome, window, pct_change, old_price, new_price, detected_at
 		FROM price_events WHERE asset_id = ?
 		ORDER BY detected_at DESC LIMIT ?`, assetID, limit)
@@ -76,7 +77,7 @@ func (s *PriceEventStore) RecentByAsset(ctx context.Context, assetID string, lim
 
 // Recent returns the N most recent price events across all assets.
 func (s *PriceEventStore) Recent(ctx context.Context, limit int64) ([]PriceEventRecord, error) {
-	rows, err := s.db.QueryContext(ctx, `
+	rows, err := s.rdb.QueryContext(ctx, `
 		SELECT asset_id, market, question, outcome, window, pct_change, old_price, new_price, detected_at
 		FROM price_events ORDER BY detected_at DESC LIMIT ?`, limit)
 	if err != nil {
@@ -88,13 +89,13 @@ func (s *PriceEventStore) Recent(ctx context.Context, limit int64) ([]PriceEvent
 // Count returns the total number of price event records.
 func (s *PriceEventStore) Count(ctx context.Context) (int64, error) {
 	var n int64
-	err := s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM price_events`).Scan(&n)
+	err := s.rdb.QueryRowContext(ctx, `SELECT COUNT(*) FROM price_events`).Scan(&n)
 	return n, err
 }
 
 // DeleteOlderThan removes price event records with detected_at before the given cutoff.
 func (s *PriceEventStore) DeleteOlderThan(ctx context.Context, cutoff time.Time) (int64, error) {
-	res, err := s.db.ExecContext(ctx,
+	res, err := s.wdb.ExecContext(ctx,
 		`DELETE FROM price_events WHERE detected_at < ?`, cutoff.Unix())
 	if err != nil {
 		return 0, err

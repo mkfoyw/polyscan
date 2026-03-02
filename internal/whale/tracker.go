@@ -12,18 +12,27 @@ import (
 
 // WhaleInfo holds metadata about a tracked whale wallet.
 type WhaleInfo struct {
-	Address     string    `json:"address"`
-	Alias       string    `json:"alias"`
-	Source      string    `json:"source"` // "auto" or "manual"
-	FirstSeenAt time.Time `json:"first_seen_at"`
-	TotalVolume float64   `json:"total_volume"`
-	LastPollTS  int64     `json:"last_poll_ts"` // last polled trade timestamp
+	Address          string    `json:"address"`
+	Alias            string    `json:"alias"`
+	Name             string    `json:"name"`
+	Pseudonym        string    `json:"pseudonym"`
+	Source           string    `json:"source"` // "auto" or "manual"
+	FirstSeenAt      time.Time `json:"first_seen_at"`
+	TotalVolume      float64   `json:"total_volume"`
+	LastPollTS       int64     `json:"last_poll_ts"` // last polled trade timestamp
+	ProfileFetchedAt time.Time `json:"profile_fetched_at"`
 }
 
-// DisplayName returns alias if set, otherwise the full address.
+// DisplayName returns the best display name: alias > name > pseudonym > address.
 func (w *WhaleInfo) DisplayName() string {
 	if w.Alias != "" {
 		return w.Alias
+	}
+	if w.Name != "" {
+		return w.Name
+	}
+	if w.Pseudonym != "" {
+		return w.Pseudonym
 	}
 	return w.Address
 }
@@ -60,12 +69,15 @@ func (t *Tracker) Load(ctx context.Context) error {
 
 	for _, r := range records {
 		t.whales[r.Address] = &WhaleInfo{
-			Address:     r.Address,
-			Alias:       r.Alias,
-			Source:      r.Source,
-			FirstSeenAt: r.FirstSeenAt,
-			TotalVolume: r.TotalVolume,
-			LastPollTS:  r.LastPollTS,
+			Address:          r.Address,
+			Alias:            r.Alias,
+			Name:             r.Name,
+			Pseudonym:        r.Pseudonym,
+			Source:           r.Source,
+			FirstSeenAt:      r.FirstSeenAt,
+			TotalVolume:      r.TotalVolume,
+			LastPollTS:       r.LastPollTS,
+			ProfileFetchedAt: r.ProfileFetchedAt,
 		}
 	}
 
@@ -84,12 +96,15 @@ func (t *Tracker) Save(ctx context.Context) error {
 
 	for _, w := range whales {
 		rec := &store.WhaleRecord{
-			Address:     w.Address,
-			Alias:       w.Alias,
-			Source:      w.Source,
-			FirstSeenAt: w.FirstSeenAt,
-			TotalVolume: w.TotalVolume,
-			LastPollTS:  w.LastPollTS,
+			Address:          w.Address,
+			Alias:            w.Alias,
+			Name:             w.Name,
+			Pseudonym:        w.Pseudonym,
+			Source:           w.Source,
+			FirstSeenAt:      w.FirstSeenAt,
+			TotalVolume:      w.TotalVolume,
+			LastPollTS:       w.LastPollTS,
+			ProfileFetchedAt: w.ProfileFetchedAt,
 		}
 		if _, err := t.whaleStore.Upsert(ctx, rec); err != nil {
 			t.logger.Error("failed to upsert whale to MongoDB", "address", w.Address, "error", err)
@@ -265,6 +280,22 @@ func (t *Tracker) UpdateVolume(ctx context.Context, address string, amount float
 			bgCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 			defer cancel()
 			_ = t.whaleStore.IncrVolume(bgCtx, address, amount)
+		}()
+	}
+}
+
+// UpdateProfile updates the cached profile name/pseudonym for a whale.
+func (t *Tracker) UpdateProfile(ctx context.Context, address, name, pseudonym string) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if w, ok := t.whales[address]; ok {
+		w.Name = name
+		w.Pseudonym = pseudonym
+		w.ProfileFetchedAt = time.Now()
+		go func() {
+			bgCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			_ = t.whaleStore.UpdateProfile(bgCtx, address, name, pseudonym)
 		}()
 	}
 }

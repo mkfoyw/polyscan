@@ -553,7 +553,7 @@ setupInfiniteScroll('settlement-list', 'settlements', fetchSettlements);
 // ============================================================
 async function fetchPriceMoves() {
   try {
-    const resp = await fetch(`${API}/api/price-moves?window=${priceWindow}&limit=50`);
+    const resp = await fetch(`${API}/api/price-moves?window=${priceWindow}&limit=50&_t=${Date.now()}`);
     const data = await resp.json();
     renderPriceMoves(data || []);
   } catch (e) {
@@ -566,7 +566,7 @@ async function fetchTrades(loadMore) {
   if (p.loading) return;
   p.loading = true;
   try {
-    let url = `${API}/api/trades?min_usd=${tradeMinUSD}&limit=${PAGE_SIZE}${tradeMaxPrice > 0 ? '&max_price=' + tradeMaxPrice : ''}`;
+    let url = `${API}/api/trades?min_usd=${tradeMinUSD}&limit=${PAGE_SIZE}&_t=${Date.now()}${tradeMaxPrice > 0 ? '&max_price=' + tradeMaxPrice : ''}`;
     if (loadMore && p.cursor) url += `&before=${p.cursor}`;
     const resp = await fetch(url);
     const data = await resp.json();
@@ -586,7 +586,7 @@ async function fetchWhaleTrades(loadMore) {
   if (p.loading) return;
   p.loading = true;
   try {
-    let url = `${API}/api/whale-trades?limit=${PAGE_SIZE}&min_usd=1000&after=${Math.floor(Date.now()/1000) - 2*86400}`;
+    let url = `${API}/api/whale-trades?limit=${PAGE_SIZE}&min_usd=1000&after=${Math.floor(Date.now()/1000) - 2*86400}&_t=${Date.now()}`;
     if (loadMore && p.cursor) url += `&before=${p.cursor}`;
     const resp = await fetch(url);
     const data = await resp.json();
@@ -617,7 +617,7 @@ async function fetchNewMarkets(loadMore) {
   p.loading = true;
   try {
     const cat = marketCategory === 'all' ? '' : marketCategory;
-    let url = `${API}/api/new-markets?category=${cat}&limit=${PAGE_SIZE}`;
+    let url = `${API}/api/new-markets?category=${cat}&limit=${PAGE_SIZE}&_t=${Date.now()}`;
     if (loadMore && p.cursor) url += `&before=${p.cursor}`;
     const resp = await fetch(url);
     const data = await resp.json();
@@ -664,7 +664,7 @@ async function fetchSettlements(loadMore) {
   if (p.loading) return;
   p.loading = true;
   try {
-    let url = `${API}/api/settlements?limit=${PAGE_SIZE}`;
+    let url = `${API}/api/settlements?limit=${PAGE_SIZE}&_t=${Date.now()}`;
     if (loadMore && p.cursor) url += `&before=${p.cursor}`;
     const resp = await fetch(url);
     const data = await resp.json();
