@@ -263,11 +263,16 @@ func (s *Server) handleWhaleTrades(c *gin.Context) {
 		return
 	}
 
-	// Build display name map from whale_users table directly
-	nameMap := make(map[string]string, len(whales))
+	// Build name + alias maps from whale_users table
+	type whaleNames struct {
+		Name      string // Polymarket profile name
+		Pseudonym string
+		Alias     string // user-set alias
+	}
+	nameMap := make(map[string]whaleNames, len(whales))
 	var addrs []string
 	for _, w := range whales {
-		nameMap[w.Address] = w.DisplayName()
+		nameMap[w.Address] = whaleNames{Name: w.Name, Pseudonym: w.Pseudonym, Alias: w.Alias}
 		// If wallet filter specified, only query that one address
 		if walletFilter != "" {
 			if strings.EqualFold(w.Address, walletFilter) {
@@ -288,10 +293,24 @@ func (s *Server) handleWhaleTrades(c *gin.Context) {
 		return
 	}
 
-	// Enrich trades with display names from whale_users
+	// Enrich trades with display names: prioritize Polymarket name, append alias in parentheses
 	for i := range trades {
-		if name, ok := nameMap[trades[i].ProxyWallet]; ok && name != trades[i].ProxyWallet {
-			trades[i].ProfileName = name
+		if wn, ok := nameMap[trades[i].ProxyWallet]; ok {
+			// Pick the best Polymarket display name: Name > Pseudonym
+			displayName := wn.Name
+			if displayName == "" {
+				displayName = wn.Pseudonym
+			}
+			if displayName != "" && displayName != trades[i].ProxyWallet {
+				if wn.Alias != "" {
+					trades[i].ProfileName = displayName + " (" + wn.Alias + ")"
+				} else {
+					trades[i].ProfileName = displayName
+				}
+			} else if wn.Alias != "" {
+				// No Polymarket name, just show alias
+				trades[i].ProfileName = wn.Alias
+			}
 		}
 	}
 
