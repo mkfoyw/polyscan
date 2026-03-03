@@ -341,6 +341,7 @@ func main() {
 			broker,
 			logger,
 		)
+		apiServer.ProfileLookup = profileClient.Lookup
 
 		// Wire SSE events: new trades
 		largeTradeMon.OnTradeStored = func(rec store.TradeRecord) {

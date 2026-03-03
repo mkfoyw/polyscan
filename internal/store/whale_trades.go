@@ -86,7 +86,7 @@ func (s *WhaleTradStore) Insert(ctx context.Context, rec *WhaleTrade) error {
 
 // Recent returns whale trades, most recent first.
 // Optionally filters by wallet addresses, min USD, and time range.
-func (s *WhaleTradStore) Recent(ctx context.Context, wallets []string, limit int64, beforeTS, afterTS int64, minUSD float64) ([]WhaleTrade, error) {
+func (s *WhaleTradStore) Recent(ctx context.Context, wallets []string, limit int64, beforeTS, afterTS int64, minUSD float64, maxPrice float64) ([]WhaleTrade, error) {
 	q := `SELECT ` + whaleTradeDBCols + ` FROM whale_trades WHERE 1=1`
 	var args []any
 
@@ -101,6 +101,10 @@ func (s *WhaleTradStore) Recent(ctx context.Context, wallets []string, limit int
 	if minUSD > 0 {
 		q += ` AND usd_value >= ?`
 		args = append(args, minUSD)
+	}
+	if maxPrice > 0 {
+		q += ` AND price <= ?`
+		args = append(args, maxPrice)
 	}
 	if beforeTS > 0 {
 		q += ` AND timestamp < ?`

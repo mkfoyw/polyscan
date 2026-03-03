@@ -30,6 +30,9 @@ type Server struct {
 	broker          *Broker
 	logger          *slog.Logger
 	httpServer      *http.Server
+
+	// ProfileLookup resolves a wallet address to a display name (optional).
+	ProfileLookup func(ctx context.Context, proxyWallet string) string
 }
 
 // NewServer creates a new API server.
@@ -91,13 +94,9 @@ func NewServer(
 		admin.DELETE("/whales/:address", s.handleDeleteWhale)
 	}
 
-	// Serve pages
-	r.GET("/", func(c *gin.Context) {
-		c.File("web/index.html")
-	})
-	r.GET("/whales", func(c *gin.Context) {
-		c.File("web/whales.html")
-	})
+	// Serve frontend pages
+	r.GET("/", func(c *gin.Context) { c.File("web/index.html") })
+	r.GET("/whales", func(c *gin.Context) { c.File("web/whales.html") })
 
 	s.httpServer = &http.Server{
 		Addr:        addr,
@@ -250,6 +249,7 @@ func (s *Server) handleWhaleTrades(c *gin.Context) {
 	beforeTS := queryInt64(c, "before", 0)
 	afterTS := queryInt64(c, "after", 0)
 	minUSD := queryFloat(c, "min_usd", 0)
+	maxPrice := queryFloat(c, "max_price", 0)
 	walletFilter := strings.ToLower(strings.TrimSpace(c.Query("wallet")))
 
 	// Get all tracked whale addresses
@@ -282,7 +282,7 @@ func (s *Server) handleWhaleTrades(c *gin.Context) {
 		return
 	}
 
-	trades, err := s.whaleTradStore.Recent(ctx, addrs, int64(limit), beforeTS, afterTS, minUSD)
+	trades, err := s.whaleTradStore.Recent(ctx, addrs, int64(limit), beforeTS, afterTS, minUSD, maxPrice)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
@@ -351,6 +351,19 @@ func (s *Server) handleAddWhale(c *gin.Context) {
 
 	s.tracker.AddManual(ctx, req.Address, req.Alias)
 	s.logger.Info("whale added via API", "address", req.Address, "alias", req.Alias)
+
+	// Resolve profile name asynchronously if no alias was provided
+	if req.Alias == "" && s.ProfileLookup != nil {
+		go func(addr string) {
+			lookupCtx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+			defer cancel()
+			if name := s.ProfileLookup(lookupCtx, addr); name != "" {
+				s.tracker.UpdateProfile(lookupCtx, addr, name, "")
+				s.logger.Info("whale profile resolved", "address", addr, "name", name)
+			}
+		}(req.Address)
+	}
+
 	c.JSON(http.StatusOK, gin.H{"ok": true, "address": req.Address, "alias": req.Alias})
 }
 
@@ -700,3 +713,5 @@ func (s *Server) PublishNewMarket(m *types.MarketInfo) {
 func (s *Server) PublishPriceMove(pm types.PriceMover) {
 	s.PublishEvent("price_move", pm)
 }
+
+

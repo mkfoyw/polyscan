@@ -292,6 +292,8 @@ let profileNameCache = {};
 
 function getWhaleDisplayName(w) {
   if (w.alias) return w.alias;
+  if (w.display_name && w.display_name !== w.address) return w.display_name;
+  if (w.name) return w.name;
   if (w.profile_name) return w.profile_name;
   if (profileNameCache[w.address]) return profileNameCache[w.address];
   return w.address.slice(0, 6) + '…' + w.address.slice(-4);

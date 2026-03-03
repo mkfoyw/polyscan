@@ -116,8 +116,8 @@ body {
   flex: 1;
   overflow-y: auto;
   padding: 0;
-  will-change: transform;
-  contain: layout style;
+  
+  
 }
 .list::-webkit-scrollbar { width: 4px; }
 .list::-webkit-scrollbar-track { background: transparent; }
@@ -131,8 +131,8 @@ body {
   cursor: pointer;
   text-decoration: none;
   color: inherit;
-  content-visibility: auto;
-  contain-intrinsic-size: auto 60px;
+  
+  
 }
 .item:hover { background: #1c2128; }
 .item-icon {
@@ -296,9 +296,11 @@ body {
       <button class="filter-btn active" data-maxprice="0">全部价格</button>
       <button class="filter-btn" data-maxprice="0.10">&le;10¢</button>
       <button class="filter-btn" data-maxprice="0.30">&le;30¢</button>
+      <button class="filter-btn" data-maxprice="0.40">&le;40¢</button>
       <button class="filter-btn" data-maxprice="0.50">&le;50¢</button>
       <button class="filter-btn" data-maxprice="0.60">&le;60¢</button>
       <button class="filter-btn" data-maxprice="0.70">&le;70¢</button>
+      <button class="filter-btn" data-maxprice="0.80">&le;80¢</button>
     </div>
     <div class="list" id="trade-list"></div>
   </div>
@@ -308,6 +310,16 @@ body {
     <div class="column-header">
       <h2>🐋 巨鲸交易</h2>
       <div class="subtitle">追踪已标记鲸鱼钱包的交易</div>
+    </div>
+    <div class="filters" id="whale-price-filters">
+      <button class="filter-btn active" data-maxprice="0">全部价格</button>
+      <button class="filter-btn" data-maxprice="0.10">&le;10¢</button>
+      <button class="filter-btn" data-maxprice="0.30">&le;30¢</button>
+      <button class="filter-btn" data-maxprice="0.40">&le;40¢</button>
+      <button class="filter-btn" data-maxprice="0.50">&le;50¢</button>
+      <button class="filter-btn" data-maxprice="0.60">&le;60¢</button>
+      <button class="filter-btn" data-maxprice="0.70">&le;70¢</button>
+      <button class="filter-btn" data-maxprice="0.80">&le;80¢</button>
     </div>
     <div class="list" id="whale-trade-list"></div>
   </div>
@@ -461,6 +473,7 @@ applyColumnLayout();
 let priceWindow = '5m';
 let tradeMinUSD = 5000;
 let tradeMaxPrice = 0;
+let whaleMaxPrice = 0;
 let marketCategory = 'all';
 
 // Tracked whale addresses (refreshed on fetchWhaleTrades)
@@ -509,6 +522,17 @@ document.getElementById('trade-price-filters').addEventListener('click', e => {
   fetchTrades();
 });
 
+document.getElementById('whale-price-filters').addEventListener('click', e => {
+  const btn = e.target.closest('.filter-btn');
+  if (!btn) return;
+  document.querySelectorAll('#whale-price-filters .filter-btn').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  whaleMaxPrice = parseFloat(btn.dataset.maxprice);
+  resetPaging('whaleTrades');
+  document.getElementById('whale-trade-list').innerHTML = '';
+  fetchWhaleTrades();
+});
+
 document.getElementById('market-filters').addEventListener('click', e => {
   const btn = e.target.closest('.filter-btn');
   if (!btn) return;
@@ -551,13 +575,16 @@ setupInfiniteScroll('settlement-list', 'settlements', fetchSettlements);
 // ============================================================
 // Fetch functions
 // ============================================================
+let _pmCtrl = null;
 async function fetchPriceMoves() {
+  if (_pmCtrl) _pmCtrl.abort();
+  _pmCtrl = new AbortController();
   try {
-    const resp = await fetch(`${API}/api/price-moves?window=${priceWindow}&limit=50&_t=${Date.now()}`);
+    const resp = await fetch(`${API}/api/price-moves?window=${priceWindow}&limit=50&_t=${Date.now()}`, { signal: _pmCtrl.signal });
     const data = await resp.json();
     renderPriceMoves(data || []);
   } catch (e) {
-    console.error('fetchPriceMoves:', e);
+    if (e.name !== 'AbortError') console.error('fetchPriceMoves:', e);
   }
 }
 
@@ -586,7 +613,7 @@ async function fetchWhaleTrades(loadMore) {
   if (p.loading) return;
   p.loading = true;
   try {
-    let url = `${API}/api/whale-trades?limit=${PAGE_SIZE}&min_usd=1000&after=${Math.floor(Date.now()/1000) - 2*86400}&_t=${Date.now()}`;
+    let url = `${API}/api/whale-trades?limit=${PAGE_SIZE}&min_usd=1000&_t=${Date.now()}${whaleMaxPrice > 0 ? '&max_price=' + whaleMaxPrice : ''}`;
     if (loadMore && p.cursor) url += `&before=${p.cursor}`;
     const resp = await fetch(url);
     const data = await resp.json();
