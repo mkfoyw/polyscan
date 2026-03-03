@@ -40,6 +40,9 @@ type Config struct {
 
 	// Data retention — per-collection pruning. 0 means no pruning.
 	Retention RetentionConfig `yaml:"retention"`
+
+	// Smart money tracking
+	SmartMoney SmartMoneyConfig `yaml:"smart_money"`
 }
 
 // RetentionConfig holds per-collection retention settings (in days).
@@ -47,6 +50,7 @@ type RetentionConfig struct {
 	TradesDays      int `yaml:"trades_days"`       // trades & alerts
 	MarketsDays     int `yaml:"markets_days"`      // new markets (in-memory) & settlements
 	PriceEventsDays int `yaml:"price_events_days"` // price spike events
+	SmartMoneyDays  int `yaml:"smart_money_days"`  // smart money trades
 }
 
 // PriceSpikeRule defines a single price spike detection rule.
@@ -76,6 +80,21 @@ type APIConfig struct {
 	Enabled     bool     `yaml:"enabled"`
 	Addr        string   `yaml:"addr"`         // e.g. ":8080"
 	AdminTokens []string `yaml:"admin_tokens"` // tokens for write operations (empty = disabled)
+}
+
+// SmartMoneyConfig holds smart money tracking settings.
+type SmartMoneyConfig struct {
+	Enabled            bool    `yaml:"enabled"`
+	SQLitePath         string  `yaml:"sqlite_path"`           // independent DB, e.g. "data/smartmoney.db"
+	MinCandidateAmount float64 `yaml:"min_candidate_amount"`  // min single-trade USD to become candidate
+	MaxCandidatePrice  float64 `yaml:"max_candidate_price"`   // only consider buys with price <= this (0 = no filter)
+	AnalysisLimit      int     `yaml:"analysis_limit"`        // max trades to fetch for analysis
+	MaxTrades          int     `yaml:"max_trades"`            // trades > this → permanently rejected (0 = no limit)
+	MinTotalBuy        float64 `yaml:"min_total_buy"`         // total buy amount >= this to confirm (USD)
+	MaxTracked         int     `yaml:"max_tracked"`           // max confirmed smart money addresses
+	PollInterval       Duration `yaml:"poll_interval"`        // poll interval for confirmed addresses
+	MinDisplayAmount   float64 `yaml:"min_display_amount"`    // min USD to save/display trades
+	Cooldown           Duration `yaml:"cooldown"`             // cooldown between alerts for same address
 }
 
 // Duration is a time.Duration that can be unmarshaled from a YAML string like "5m".
@@ -122,6 +141,19 @@ func DefaultConfig() *Config {
 		API: APIConfig{
 			Enabled: true,
 			Addr:    ":8080",
+		},
+		SmartMoney: SmartMoneyConfig{
+			Enabled:            false,
+			SQLitePath:         "data/smartmoney.db",
+			MinCandidateAmount: 5000,
+			MaxCandidatePrice:  0.5,
+			AnalysisLimit:      200,
+			MaxTrades:          10,
+			MinTotalBuy:        1000,
+			MaxTracked:         500,
+			PollInterval:       Duration{60 * time.Second},
+			MinDisplayAmount:   100,
+			Cooldown:           Duration{5 * time.Minute},
 		},
 	}
 }

@@ -18,6 +18,7 @@ import (
 	"github.com/mkfoyw/polyscan/internal/notify"
 	"github.com/mkfoyw/polyscan/internal/poller"
 	"github.com/mkfoyw/polyscan/internal/profile"
+	"github.com/mkfoyw/polyscan/internal/smartmoney"
 	"github.com/mkfoyw/polyscan/internal/store"
 	"github.com/mkfoyw/polyscan/internal/types"
 	"github.com/mkfoyw/polyscan/internal/whale"
@@ -139,6 +140,9 @@ func main() {
 
 	logger.Info("whale tracker initialized", "tracked", whaleTracker.Count())
 
+	// Pre-declare smart money scanner so the callback below can reference it
+	var smScanner *smartmoney.Scanner
+
 	// Wire up auto-tracking: when a large trade is detected via REST, auto-track the wallet
 	{
 		minAmount := cfg.Whale.MinTradeAmount
@@ -161,12 +165,51 @@ func main() {
 				default:
 				}
 			}
+
+			// Also feed into smart money candidate discovery
+			if smScanner != nil {
+				smScanner.AddCandidate(ctx, proxyWallet, usdValue, price, side, question)
+			}
 		}
 	}
 
 	// 9. Whale poller
 	whalePoller := poller.NewWhalePoller(whaleTracker, whaleTradStore, cfg.Whale.PollInterval.Duration, cfg.Whale.MinDisplayAmount, alertCh, logger)
 	whalePoller.ProfileLookup = profileClient.Lookup
+
+	// 10. Smart money system (optional — controlled by config)
+	var smPoller *poller.SmartMoneyPoller
+	var smUserStore *store.SmartMoneyUserStore
+	var smTradeStore *store.SmartMoneyTradeStore
+	var smDB *store.SmartMoneyDB
+
+	if cfg.SmartMoney.Enabled {
+		smDB, err = store.NewSmartMoneyDB(ctx, cfg.SmartMoney.SQLitePath, logger)
+		if err != nil {
+			logger.Error("failed to open SmartMoney SQLite", "error", err)
+			os.Exit(1)
+		}
+		defer smDB.Close()
+		if err := smDB.EnsureSchema(); err != nil {
+			logger.Error("failed to ensure SmartMoney schema", "error", err)
+			os.Exit(1)
+		}
+		smUserStore = smDB.Users()
+		smTradeStore = smDB.Trades()
+
+		smScanner = smartmoney.NewScanner(cfg.SmartMoney, smUserStore, logger)
+		smScanner.ProfileLookup = profileClient.Lookup
+
+		smPoller = poller.NewSmartMoneyPoller(
+			smUserStore, smTradeStore,
+			cfg.SmartMoney.PollInterval.Duration,
+			cfg.SmartMoney.MinDisplayAmount,
+			alertCh, logger,
+		)
+		smPoller.ProfileLookup = profileClient.Lookup
+
+		logger.Info("smart money system initialized", "db", cfg.SmartMoney.SQLitePath)
+	}
 
 	// --- Start all goroutines ---
 	var wg sync.WaitGroup
@@ -201,9 +244,9 @@ func main() {
 						logger.Error("failed to persist alert", "error", err)
 					}
 				}
-				// Send via Telegram — only large trades & whale alerts
+				// Send via Telegram — large trades, whale alerts & smart money
 				switch alert.Type {
-				case types.AlertLargeTrade, types.AlertWhaleActivity, types.AlertNewWhaleTracked:
+				case types.AlertLargeTrade, types.AlertWhaleActivity, types.AlertNewWhaleTracked, types.AlertSmartMoney:
 					if err := tg.Send(ctx, alert); err != nil {
 						logger.Error("failed to send Telegram alert", "error", err)
 					}
@@ -258,9 +301,21 @@ func main() {
 		whalePoller.Run(ctx)
 	})
 
+	// Smart money scanner + poller (if enabled)
+	if smScanner != nil {
+		start("smartmoney-scanner", func(ctx context.Context) {
+			smScanner.Run(ctx)
+		})
+	}
+	if smPoller != nil {
+		start("smartmoney-poller", func(ctx context.Context) {
+			smPoller.Run(ctx)
+		})
+	}
+
 	// Data retention cleanup — prune old records once per day
 	ret := cfg.Retention
-	if ret.TradesDays > 0 || ret.MarketsDays > 0 || ret.PriceEventsDays > 0 {
+	if ret.TradesDays > 0 || ret.MarketsDays > 0 || ret.PriceEventsDays > 0 || ret.SmartMoneyDays > 0 {
 		start("data-cleanup", func(ctx context.Context) {
 			// Run immediately on startup, then every 24h
 			ticker := time.NewTicker(24 * time.Hour)
@@ -314,6 +369,16 @@ func main() {
 					}
 				}
 
+				// Smart money trades
+				if ret.SmartMoneyDays > 0 && smTradeStore != nil {
+					cutoff := time.Now().AddDate(0, 0, -ret.SmartMoneyDays)
+					if n, err := smTradeStore.DeleteOlderThan(ctx, cutoff); err != nil {
+						logger.Error("cleanup smart_money_trades failed", "error", err)
+					} else if n > 0 {
+						logger.Info("pruned old smart money trades", "deleted", n)
+					}
+				}
+
 				select {
 				case <-ctx.Done():
 					return
@@ -336,12 +401,17 @@ func main() {
 			whaleTradStore,
 			priceEventStore,
 			settlementStore,
+			smUserStore,
+			smTradeStore,
 			whaleTracker,
 			priceSpikeMon.TopMovers,
 			broker,
 			logger,
 		)
 		apiServer.ProfileLookup = profileClient.Lookup
+		if smScanner != nil {
+			apiServer.SmartMoneyScanner = smScanner
+		}
 
 		// Wire SSE events: new trades
 		largeTradeMon.OnTradeStored = func(rec store.TradeRecord) {
@@ -356,6 +426,13 @@ func main() {
 		// Wire SSE events: new markets
 		discovery.OnNewMarketInfo = func(m *types.MarketInfo) {
 			apiServer.PublishNewMarket(m)
+		}
+
+		// Wire SSE events: smart money trades
+		if smPoller != nil {
+			smPoller.OnTradeStored = func(rec store.SmartMoneyTrade) {
+				apiServer.PublishSmartMoneyTrade(rec)
+			}
 		}
 
 		start("api-server", func(ctx context.Context) {

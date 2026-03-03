@@ -10,6 +10,7 @@ const (
 	AlertPriceSpike
 	AlertWhaleActivity
 	AlertNewWhaleTracked
+	AlertSmartMoney
 )
 
 func (a AlertType) String() string {
@@ -22,6 +23,8 @@ func (a AlertType) String() string {
 		return "WhaleActivity"
 	case AlertNewWhaleTracked:
 		return "NewWhaleTracked"
+	case AlertSmartMoney:
+		return "SmartMoney"
 	default:
 		return "Unknown"
 	}
@@ -120,4 +123,22 @@ func escapeMarkdown(s string) string {
 		result = append(result, s[i])
 	}
 	return string(result)
+}
+
+// FormatSmartMoneyAlert formats a smart money trade alert message.
+func FormatSmartMoneyAlert(alias, side, outcome string, usdcSize, size, price float64, question, url string) Alert {
+	aliasDisplay := formatWalletLink(alias)
+	msg := fmt.Sprintf(
+		"🧠 *聪明钱动态*\n"+
+			"👤 %s\n"+
+			"💰 *%s %s* — $%.0f (%.1f @ %.4f)\n"+
+			"📋 %s\n"+
+			"🔗 [查看市场](%s)",
+		aliasDisplay,
+		side, outcome,
+		usdcSize, size, price,
+		escapeMarkdown(question),
+		url,
+	)
+	return Alert{Type: AlertSmartMoney, Message: msg}
 }

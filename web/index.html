@@ -231,11 +231,14 @@ body {
   <button class="col-toggle active" data-col="price-moves">📊 价格波动</button>
   <button class="col-toggle active" data-col="trades">💰 大额交易</button>
   <button class="col-toggle active" data-col="whale-trades">🐋 巨鲸交易</button>
+  <button class="col-toggle" data-col="smart-money">🧠 聪明钱</button>
   <button class="col-toggle active" data-col="new-markets">🏛 新市场</button>
   <button class="col-toggle" data-col="settlements">✅ 最新结算</button>
   <span class="topbar-label" style="margin-left:auto;font-size:11px;color:#6e7681">拖拽栏目可调整顺序</span>
   <button onclick="openWhaleModal()" style="margin-left:8px;font-size:12px;color:#3fb950;background:transparent;border:1px dashed #30363d;padding:4px 10px;border-radius:12px;cursor:pointer;white-space:nowrap" onmouseover="this.style.borderColor='#3fb950'" onmouseout="this.style.borderColor='#30363d'">➕ 添加巨鲸</button>
+  <button onclick="openSmModal()" style="margin-left:4px;font-size:12px;color:#a78bfa;background:transparent;border:1px dashed #30363d;padding:4px 10px;border-radius:12px;cursor:pointer;white-space:nowrap" onmouseover="this.style.borderColor='#a78bfa'" onmouseout="this.style.borderColor='#30363d'">➕ 添加聪明钱</button>
   <a href="/whales" style="margin-left:4px;font-size:12px;color:#58a6ff;text-decoration:none;padding:4px 10px;border:1px solid #30363d;border-radius:12px;white-space:nowrap">🐋 巨鲸管理</a>
+  <a href="/smartmoney" style="margin-left:4px;font-size:12px;color:#58a6ff;text-decoration:none;padding:4px 10px;border:1px solid #30363d;border-radius:12px;white-space:nowrap">🧠 聪明钱管理</a>
 </div>
 
 <!-- Add whale modal -->
@@ -260,6 +263,28 @@ body {
   </div>
 </div>
 <div class="wm-toast-wrap" id="wm-toast-wrap"></div>
+
+<!-- Add smart money modal -->
+<div class="whale-modal-overlay" id="sm-modal" onclick="if(event.target===this)closeSmModal()">
+  <div class="whale-modal">
+    <h3>🧠 快速添加聪明钱 <span class="wm-close" onclick="closeSmModal()">✕</span></h3>
+    <div class="wm-row">
+      <label>地址</label>
+      <input type="text" id="sm-addr" placeholder="0x..." spellcheck="false" />
+    </div>
+    <div class="wm-row">
+      <label>别名</label>
+      <input type="text" id="sm-alias" placeholder="可选" />
+    </div>
+    <div class="wm-row">
+      <label>Token</label>
+      <input type="password" id="sm-token" placeholder="管理员 Token" />
+    </div>
+    <div class="wm-row" style="justify-content:flex-end">
+      <button class="wm-btn" id="sm-submit" onclick="submitSmartMoney()">添加</button>
+    </div>
+  </div>
+</div>
 
 <div class="dashboard" id="dashboard">
 
@@ -287,10 +312,13 @@ body {
       <div class="subtitle">实时追踪大额订单</div>
     </div>
     <div class="filters" id="trade-filters">
-      <button class="filter-btn active" data-min="5000">$5,000+</button>
+      <button class="filter-btn active" data-min="1000">$1,000+</button>
+      <button class="filter-btn" data-min="2000">$2,000+</button>
+      <button class="filter-btn" data-min="3000">$3,000+</button>
+      <button class="filter-btn" data-min="5000">$5,000+</button>
       <button class="filter-btn" data-min="10000">$10,000+</button>
+      <button class="filter-btn" data-min="50000">$50,000+</button>
       <button class="filter-btn" data-min="100000">$100,000+</button>
-      <button class="filter-btn" data-min="1000000">$1,000,000+</button>
     </div>
     <div class="filters" id="trade-price-filters">
       <button class="filter-btn active" data-maxprice="0">全部价格</button>
@@ -346,6 +374,25 @@ body {
     <div class="list" id="market-list"></div>
   </div>
 
+  <!-- Column: Smart Money Trades -->
+  <div class="column" id="col-smart-money" draggable="true">
+    <div class="column-header">
+      <h2>🧠 聪明钱交易</h2>
+      <div class="subtitle">追踪高胜率聪明钱钱包的交易</div>
+    </div>
+    <div class="filters" id="sm-price-filters">
+      <button class="filter-btn active" data-maxprice="0">全部价格</button>
+      <button class="filter-btn" data-maxprice="0.10">&le;10¢</button>
+      <button class="filter-btn" data-maxprice="0.30">&le;30¢</button>
+      <button class="filter-btn" data-maxprice="0.40">&le;40¢</button>
+      <button class="filter-btn" data-maxprice="0.50">&le;50¢</button>
+      <button class="filter-btn" data-maxprice="0.60">&le;60¢</button>
+      <button class="filter-btn" data-maxprice="0.70">&le;70¢</button>
+      <button class="filter-btn" data-maxprice="0.80">&le;80¢</button>
+    </div>
+    <div class="list" id="sm-trade-list"></div>
+  </div>
+
   <!-- Column: Recent Settlements -->
   <div class="column" id="col-settlements" draggable="true">
     <div class="column-header">
@@ -364,9 +411,9 @@ const PAGE_SIZE = 30;
 // ============================================================
 // Column visibility & order (persisted to localStorage)
 // ============================================================
-const ALL_COLUMNS = ['price-moves', 'trades', 'whale-trades', 'new-markets', 'settlements'];
+const ALL_COLUMNS = ['price-moves', 'trades', 'whale-trades', 'smart-money', 'new-markets', 'settlements'];
 const DEFAULT_VISIBLE = ['price-moves', 'trades', 'whale-trades', 'new-markets'];
-const DEFAULT_ORDER   = ['price-moves', 'trades', 'whale-trades', 'new-markets', 'settlements'];
+const DEFAULT_ORDER   = ['price-moves', 'trades', 'whale-trades', 'smart-money', 'new-markets', 'settlements'];
 
 function loadColumnConfig() {
   try {
@@ -429,6 +476,7 @@ document.querySelector('.topbar').addEventListener('click', e => {
   }
   applyColumnLayout();
   if (col === 'whale-trades' && visibleCols.includes(col)) fetchWhaleTrades();
+  if (col === 'smart-money' && visibleCols.includes(col)) fetchSmartMoneyTrades();
 });
 
 // --- Drag & Drop reorder ---
@@ -471,9 +519,10 @@ applyColumnLayout();
 // State
 // ============================================================
 let priceWindow = '5m';
-let tradeMinUSD = 5000;
+let tradeMinUSD = 1000;
 let tradeMaxPrice = 0;
 let whaleMaxPrice = 0;
+let smMaxPrice = 0;
 let marketCategory = 'all';
 
 // Tracked whale addresses (refreshed on fetchWhaleTrades)
@@ -482,6 +531,7 @@ const whaleAddressSet = new Set();
 const paging = {
   trades:       { loading: false, done: false, cursor: null },
   whaleTrades:  { loading: false, done: false, cursor: null },
+  smTrades:     { loading: false, done: false, cursor: null },
   markets:      { loading: false, done: false, cursor: null },
   settlements:  { loading: false, done: false, cursor: null },
 };
@@ -533,6 +583,17 @@ document.getElementById('whale-price-filters').addEventListener('click', e => {
   fetchWhaleTrades();
 });
 
+document.getElementById('sm-price-filters').addEventListener('click', e => {
+  const btn = e.target.closest('.filter-btn');
+  if (!btn) return;
+  document.querySelectorAll('#sm-price-filters .filter-btn').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  smMaxPrice = parseFloat(btn.dataset.maxprice);
+  resetPaging('smTrades');
+  document.getElementById('sm-trade-list').innerHTML = '';
+  fetchSmartMoneyTrades();
+});
+
 document.getElementById('market-filters').addEventListener('click', e => {
   const btn = e.target.closest('.filter-btn');
   if (!btn) return;
@@ -569,6 +630,7 @@ function setupInfiniteScroll(listId, pagingKey, fetchFn) {
 
 setupInfiniteScroll('trade-list', 'trades', fetchTrades);
 setupInfiniteScroll('whale-trade-list', 'whaleTrades', fetchWhaleTrades);
+setupInfiniteScroll('sm-trade-list', 'smTrades', fetchSmartMoneyTrades);
 setupInfiniteScroll('market-list', 'markets', fetchNewMarkets);
 setupInfiniteScroll('settlement-list', 'settlements', fetchSettlements);
 
@@ -633,6 +695,26 @@ async function fetchWhaleTrades(loadMore) {
     if (loadMore) appendWhaleTrades(items); else renderWhaleTrades(items);
   } catch (e) {
     console.error('fetchWhaleTrades:', e);
+  } finally {
+    p.loading = false;
+  }
+}
+
+async function fetchSmartMoneyTrades(loadMore) {
+  const p = paging.smTrades;
+  if (p.loading) return;
+  p.loading = true;
+  try {
+    let url = `${API}/api/smart-money-trades?limit=${PAGE_SIZE}&min_usd=100&_t=${Date.now()}${smMaxPrice > 0 ? '&max_price=' + smMaxPrice : ''}`;
+    if (loadMore && p.cursor) url += `&before=${p.cursor}`;
+    const resp = await fetch(url);
+    const data = await resp.json();
+    const items = data || [];
+    if (items.length < PAGE_SIZE) p.done = true;
+    if (items.length > 0) p.cursor = items[items.length - 1].timestamp;
+    if (loadMore) appendSmartMoneyTrades(items); else renderSmartMoneyTrades(items);
+  } catch (e) {
+    console.error('fetchSmartMoneyTrades:', e);
   } finally {
     p.loading = false;
   }
@@ -762,6 +844,15 @@ function renderWhaleTrades(trades) {
   list.innerHTML = trades.map(renderTradeItem).join('');
 }
 
+function renderSmartMoneyTrades(trades) {
+  const list = document.getElementById('sm-trade-list');
+  if (trades.length === 0) {
+    list.innerHTML = '<div class="empty-state">暂无聪明钱交易数据<br>当确认的聪明钱钱包有交易时会显示在这里</div>';
+    return;
+  }
+  list.innerHTML = trades.map(renderTradeItem).join('');
+}
+
 function tradeKey(t) {
   if (t.transaction_hash) return 'tx:' + t.transaction_hash;
   return (t.asset || '') + ':' + (t.timestamp || 0);
@@ -881,6 +972,34 @@ function appendWhaleTrades(items) {
   list.insertAdjacentHTML('beforeend', items.map(renderTradeItem).join(''));
 }
 
+function appendSmartMoneyTrades(items) {
+  const list = document.getElementById('sm-trade-list');
+  const empty = list.querySelector('.empty-state');
+  if (empty) empty.remove();
+  list.insertAdjacentHTML('beforeend', items.map(renderTradeItem).join(''));
+}
+
+function prependSmartMoneyTrade(item) {
+  const list = document.getElementById('sm-trade-list');
+  const empty = list.querySelector('.empty-state');
+  if (empty) empty.remove();
+  if (smMaxPrice > 0 && (item.price || 0) > smMaxPrice) return;
+  const key = tradeKey(item);
+  const ts = item.timestamp || 0;
+  const existing = list.querySelector(`[data-key="${CSS.escape(key)}"]`);
+  if (existing) { existing.outerHTML = renderTradeItem(item); return; }
+  const items = list.querySelectorAll('.item[data-ts]');
+  let inserted = false;
+  for (const el of items) {
+    if (ts > (parseInt(el.dataset.ts, 10) || 0)) {
+      el.insertAdjacentHTML('beforebegin', renderTradeItem(item));
+      inserted = true;
+      break;
+    }
+  }
+  if (!inserted) list.insertAdjacentHTML('beforeend', renderTradeItem(item));
+}
+
 function prependTrade(item) {
   _prependTradeToList('trade-list', item, true);
   // Only push to whale list if this wallet is a tracked whale
@@ -969,6 +1088,7 @@ function connectSSE() {
         case 'trade': prependTrade(evt.data); break;
         case 'settlement': prependSettlement(evt.data); break;
         case 'new_market': prependNewMarket(evt.data); break;
+        case 'smart_money_trade': prependSmartMoneyTrade(evt.data); break;
         case 'price_move': break;
       }
     } catch (e) { console.error('SSE parse error:', e); }
@@ -1030,6 +1150,7 @@ function refreshAll() {
   fetchPriceMoves();
   fetchTrades();
   if (visibleCols.includes('whale-trades')) fetchWhaleTrades();
+  if (visibleCols.includes('smart-money')) fetchSmartMoneyTrades();
   fetchNewMarkets();
   fetchSettlements();
 }
@@ -1082,7 +1203,46 @@ document.getElementById('wm-addr').addEventListener('keydown', function(e) {
 });
 document.getElementById('wm-alias').addEventListener('keydown', function(e) { if (e.key === 'Enter') submitWhale(); });
 document.getElementById('wm-token').addEventListener('keydown', function(e) { if (e.key === 'Enter') submitWhale(); });
-document.addEventListener('keydown', function(e) { if (e.key === 'Escape') closeWhaleModal(); });
+document.addEventListener('keydown', function(e) { if (e.key === 'Escape') { closeWhaleModal(); closeSmModal(); } });
+
+// --- Smart money modal ---
+function openSmModal() {
+  document.getElementById('sm-modal').classList.add('open');
+  var saved = localStorage.getItem('polyscan_admin_token');
+  if (saved) document.getElementById('sm-token').value = saved;
+  document.getElementById('sm-addr').focus();
+}
+function closeSmModal() {
+  document.getElementById('sm-modal').classList.remove('open');
+}
+function submitSmartMoney() {
+  var addr = document.getElementById('sm-addr').value.trim();
+  var alias = document.getElementById('sm-alias').value.trim();
+  var token = document.getElementById('sm-token').value.trim();
+  if (!token) { wmToast('请输入管理员 Token', false); return; }
+  if (!addr || !addr.startsWith('0x') || addr.length !== 42) { wmToast('请输入有效地址 (0x, 42字符)', false); return; }
+  localStorage.setItem('polyscan_admin_token', token);
+  var btn = document.getElementById('sm-submit');
+  btn.disabled = true; btn.textContent = '添加中…';
+  fetch('/api/smart-money', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token },
+    body: JSON.stringify({ address: addr, alias: alias })
+  }).then(function(r){ return r.json().then(function(d){ return {ok:r.ok, data:d}; }); })
+  .then(function(res) {
+    if (!res.ok) { wmToast(res.data.error || '添加失败', false); return; }
+    wmToast('已添加聪明钱: ' + addr.slice(0,8) + '…', true);
+    document.getElementById('sm-addr').value = '';
+    document.getElementById('sm-alias').value = '';
+    closeSmModal();
+  }).catch(function(e){ wmToast('请求失败: ' + e.message, false); })
+  .finally(function(){ btn.disabled = false; btn.textContent = '添加'; });
+}
+document.getElementById('sm-addr').addEventListener('keydown', function(e) {
+  if (e.key === 'Enter') { var a = document.getElementById('sm-alias'); if (!a.value.trim()) a.focus(); else submitSmartMoney(); }
+});
+document.getElementById('sm-alias').addEventListener('keydown', function(e) { if (e.key === 'Enter') submitSmartMoney(); });
+document.getElementById('sm-token').addEventListener('keydown', function(e) { if (e.key === 'Enter') submitSmartMoney(); });
 setInterval(fetchPriceMoves, 5000);
 
 // Refresh relative times every 30s

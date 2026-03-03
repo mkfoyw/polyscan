@@ -1,0 +1,360 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PolyScan — 聪明钱管理</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+:root{--bg:#0d1117;--bg2:#161b22;--bg3:#1c2128;--border:#21262d;--border2:#30363d;--text:#c9d1d9;--text2:#8b949e;--text3:#484f58;--white:#e6edf3;--blue:#58a6ff;--green:#3fb950;--red:#f85149;--purple:#a78bfa;--yellow:#d29922}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:var(--bg);color:var(--text);height:100vh;overflow:hidden;display:flex;flex-direction:column}
+a{color:var(--blue);text-decoration:none}a:hover{text-decoration:underline}
+::-webkit-scrollbar{width:6px}
+::-webkit-scrollbar-track{background:transparent}
+::-webkit-scrollbar-thumb{background:var(--border2);border-radius:3px}
+
+.topbar{display:flex;align-items:center;gap:12px;padding:8px 20px;background:var(--bg2);border-bottom:1px solid var(--border2);flex-shrink:0;z-index:10}
+.topbar h1{font-size:16px;color:var(--white)}
+.topbar .actions{margin-left:auto;display:flex;gap:8px;align-items:center}
+.topbar .back{font-size:12px;color:var(--text2)}.topbar .back:hover{color:var(--blue)}
+.btn-topbar{padding:4px 12px;border-radius:6px;border:1px solid var(--border2);background:transparent;color:var(--text2);font-size:11px;cursor:pointer;transition:all .15s}
+.btn-topbar:hover{border-color:var(--blue);color:var(--blue)}
+.btn-topbar.active{border-color:var(--blue);color:var(--blue);background:rgba(88,166,255,.08)}
+
+.token-group{display:flex;align-items:center;gap:4px}
+.token-group input{width:140px;padding:4px 8px;border-radius:5px;border:1px solid var(--border2);background:var(--bg);color:var(--text);font-size:11px;outline:none}
+.token-group input:focus{border-color:var(--blue)}
+.token-group .badge{font-size:10px;padding:2px 6px;border-radius:8px}
+.token-group .badge.ok{background:rgba(63,185,80,.12);color:var(--green)}
+.token-group .badge.no{background:rgba(248,81,73,.12);color:var(--red)}
+
+/* Status filter bar */
+.filter-bar{background:var(--bg2);border-bottom:1px solid var(--border2);padding:10px 20px;flex-shrink:0;display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.filter-btn{padding:5px 14px;border-radius:16px;border:1px solid var(--border2);background:transparent;color:var(--text2);font-size:12px;cursor:pointer;transition:all .15s}
+.filter-btn:hover{border-color:var(--blue);color:var(--blue)}
+.filter-btn.active{background:#1f6feb;border-color:#1f6feb;color:#fff}
+.filter-count{font-size:10px;opacity:.7;margin-left:2px}
+
+/* Content area */
+.content{flex:1;overflow-y:auto;padding:16px 20px}
+
+/* User cards */
+.user-card{display:flex;align-items:center;gap:14px;padding:14px 16px;background:var(--bg2);border:1px solid var(--border);border-radius:10px;margin-bottom:8px;transition:all .15s}
+.user-card:hover{border-color:var(--border2);background:var(--bg3)}
+.user-avatar{width:40px;height:40px;border-radius:50%;background:linear-gradient(135deg,#1a2332,#243044);display:flex;align-items:center;justify-content:center;font-size:16px;border:1px solid var(--border2);flex-shrink:0}
+.user-info{flex:1;min-width:0}
+.user-name{font-size:14px;font-weight:600;color:var(--white);display:flex;align-items:center;gap:6px}
+.user-name a{color:inherit;text-decoration:none}.user-name a:hover{color:var(--blue)}
+.user-addr{font-size:11px;color:var(--text3);margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.user-stats{display:flex;gap:12px;align-items:center;margin-top:4px}
+.stat{font-size:11px;color:var(--text2)}
+.stat-val{font-weight:600;color:var(--white)}
+.stat-val.positive{color:var(--green)}
+.stat-val.negative{color:var(--red)}
+
+/* Status badges */
+.status-badge{font-size:10px;padding:2px 8px;border-radius:8px;font-weight:600;white-space:nowrap}
+.status-badge.candidate{background:rgba(210,153,34,.12);color:var(--yellow)}
+.status-badge.confirmed{background:rgba(63,185,80,.12);color:var(--green)}
+.status-badge.rejected{background:rgba(248,81,73,.12);color:var(--red)}
+
+.user-actions{display:flex;gap:6px;flex-shrink:0}
+.action-btn{padding:4px 10px;border-radius:6px;border:1px solid var(--border2);background:transparent;color:var(--text2);font-size:11px;cursor:pointer;transition:all .15s}
+.action-btn:hover{border-color:var(--blue);color:var(--blue)}
+.action-btn.confirm{border-color:var(--green);color:var(--green)}.action-btn.confirm:hover{background:rgba(63,185,80,.08)}
+.action-btn.reject{border-color:var(--red);color:var(--red)}.action-btn.reject:hover{background:rgba(248,81,73,.08)}
+.action-btn.delete{border-color:var(--red);color:var(--red)}.action-btn.delete:hover{background:rgba(248,81,73,.08)}
+
+/* Add modal */
+.add-panel{display:none;position:fixed;top:0;left:0;right:0;bottom:0;z-index:50;background:rgba(0,0,0,.5);align-items:center;justify-content:center}
+.add-panel.open{display:flex}
+.add-card{background:var(--bg2);border:1px solid var(--border2);border-radius:14px;padding:24px;width:440px;max-width:90vw}
+.add-card h3{font-size:15px;color:var(--white);margin-bottom:16px;display:flex;align-items:center;gap:8px}
+.add-card .close{margin-left:auto;cursor:pointer;color:var(--text3);font-size:16px;padding:2px 6px;border-radius:4px}
+.add-card .close:hover{color:var(--white);background:rgba(255,255,255,.06)}
+.field-row{display:flex;gap:8px;align-items:center;margin-bottom:10px}
+.field-row:last-child{margin-bottom:0}
+.field-row label{font-size:12px;color:var(--text2);white-space:nowrap;min-width:72px}
+.field-row input{flex:1;padding:8px 12px;border-radius:8px;border:1px solid var(--border2);background:var(--bg);color:var(--text);font-size:13px;outline:none;transition:border-color .15s}
+.field-row input:focus{border-color:var(--blue)}
+.field-row input::placeholder{color:var(--text3)}
+.btn{padding:7px 16px;border-radius:8px;border:none;font-size:12px;cursor:pointer;font-weight:500;transition:all .15s}
+.btn:active{transform:scale(.97)}
+.btn-primary{background:#238636;color:#fff}.btn-primary:hover{background:#2ea043}
+.btn-primary:disabled{opacity:.5;cursor:not-allowed}
+
+.empty-state{text-align:center;padding:60px 20px}
+.empty-icon{font-size:48px;margin-bottom:10px;opacity:.4}
+.empty-title{font-size:14px;color:var(--text2)}
+.empty-sub{font-size:12px;color:var(--text3);margin-top:4px}
+
+/* Toast */
+.msg-wrap{position:fixed;top:50px;right:16px;z-index:200;display:flex;flex-direction:column;gap:6px;pointer-events:none}
+.msg{font-size:12px;padding:8px 14px;border-radius:8px;box-shadow:0 4px 16px rgba(0,0,0,.4);animation:slideIn .2s ease;max-width:320px;pointer-events:auto}
+.msg.ok{background:#0d2818;color:var(--green);border:1px solid rgba(63,185,80,.3)}
+.msg.err{background:#2d1214;color:var(--red);border:1px solid rgba(248,81,73,.3)}
+@keyframes slideIn{from{opacity:0;transform:translateX(16px)}to{opacity:1;transform:translateX(0)}}
+
+@media(max-width:640px){
+  .content{padding:10px 12px}
+  .user-card{padding:10px 12px;gap:10px}
+  .user-stats{flex-wrap:wrap;gap:8px}
+  .token-group input{width:100px}
+}
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <h1>🧠 聪明钱管理</h1>
+  <div class="actions">
+    <button class="btn-topbar" onclick="openAddPanel()">➕ 手动添加</button>
+    <div class="token-group">
+      <span>🔑</span>
+      <input type="password" id="admin-token" placeholder="Token" />
+      <span class="badge no" id="token-badge">未设置</span>
+      <button class="btn-topbar" onclick="saveToken()">保存</button>
+    </div>
+    <a href="/" class="back">← Dashboard</a>
+  </div>
+</div>
+
+<div class="filter-bar">
+  <button class="filter-btn active" data-status="all">全部 <span class="filter-count" id="count-all">0</span></button>
+  <button class="filter-btn" data-status="confirmed">✅ 已确认 <span class="filter-count" id="count-confirmed">0</span></button>
+  <button class="filter-btn" data-status="candidate">⏳ 候选 <span class="filter-count" id="count-candidate">0</span></button>
+  <button class="filter-btn" data-status="rejected">❌ 已拒绝 <span class="filter-count" id="count-rejected">0</span></button>
+</div>
+
+<div class="content" id="content">
+  <div class="empty-state">
+    <div class="empty-icon">🧠</div>
+    <div class="empty-title">加载中...</div>
+  </div>
+</div>
+
+<!-- Add smart money modal -->
+<div class="add-panel" id="add-panel" onclick="if(event.target===this)closeAddPanel()">
+  <div class="add-card">
+    <h3>➕ 手动添加聪明钱 <span class="close" onclick="closeAddPanel()">✕</span></h3>
+    <div class="field-row">
+      <label>钱包地址</label>
+      <input type="text" id="add-addr" placeholder="0x..." spellcheck="false" />
+    </div>
+    <div class="field-row">
+      <label>别名</label>
+      <input type="text" id="add-alias" placeholder="可选" />
+      <button class="btn btn-primary" id="add-btn" onclick="addSmartMoney()">添加</button>
+    </div>
+  </div>
+</div>
+
+<div class="msg-wrap" id="msg-wrap"></div>
+
+<script>
+const API = '';
+let currentFilter = 'all';
+let allUsers = [];
+
+// Token management
+function loadToken() {
+  const t = localStorage.getItem('polyscan_admin_token') || '';
+  document.getElementById('admin-token').value = t;
+  updateTokenBadge(t);
+  return t;
+}
+function saveToken() {
+  const t = document.getElementById('admin-token').value.trim();
+  localStorage.setItem('polyscan_admin_token', t);
+  updateTokenBadge(t);
+  toast('Token 已保存', true);
+}
+function updateTokenBadge(t) {
+  const b = document.getElementById('token-badge');
+  if (t) { b.className = 'badge ok'; b.textContent = '已设置'; }
+  else { b.className = 'badge no'; b.textContent = '未设置'; }
+}
+function getToken() {
+  return document.getElementById('admin-token').value.trim();
+}
+
+// Toast
+function toast(text, ok) {
+  const el = document.createElement('div');
+  el.className = 'msg ' + (ok ? 'ok' : 'err');
+  el.textContent = text;
+  document.getElementById('msg-wrap').appendChild(el);
+  setTimeout(() => { el.style.opacity = '0'; el.style.transition = 'opacity .3s'; setTimeout(() => el.remove(), 300); }, 3500);
+}
+
+// Helpers
+function esc(s) { if (!s) return ''; const d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
+function shortAddr(a) { return a && a.length > 12 ? a.slice(0, 8) + '...' + a.slice(-4) : (a || ''); }
+function relativeTime(ts) {
+  if (!ts) return '';
+  let t = ts; if (t < 1e12) t *= 1000;
+  const diff = Date.now() - t;
+  if (diff < 60000) return '刚刚';
+  if (diff < 3600000) return Math.floor(diff / 60000) + '分钟前';
+  if (diff < 86400000) return Math.floor(diff / 3600000) + '小时前';
+  return Math.floor(diff / 86400000) + '天前';
+}
+
+// Filter handlers
+document.querySelector('.filter-bar').addEventListener('click', e => {
+  const btn = e.target.closest('.filter-btn');
+  if (!btn) return;
+  document.querySelectorAll('.filter-bar .filter-btn').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  currentFilter = btn.dataset.status;
+  renderUsers();
+});
+
+// Fetch users
+async function fetchUsers() {
+  try {
+    const resp = await fetch(`${API}/api/smart-money?_t=${Date.now()}`);
+    allUsers = (await resp.json()) || [];
+    updateCounts();
+    renderUsers();
+  } catch (e) {
+    console.error('fetchUsers:', e);
+    document.getElementById('content').innerHTML = '<div class="empty-state"><div class="empty-icon">⚠️</div><div class="empty-title">加载失败</div><div class="empty-sub">' + esc(e.message) + '</div></div>';
+  }
+}
+
+function updateCounts() {
+  const counts = { all: allUsers.length, confirmed: 0, candidate: 0, rejected: 0 };
+  allUsers.forEach(u => { if (counts[u.status] !== undefined) counts[u.status]++; });
+  document.getElementById('count-all').textContent = counts.all;
+  document.getElementById('count-confirmed').textContent = counts.confirmed;
+  document.getElementById('count-candidate').textContent = counts.candidate;
+  document.getElementById('count-rejected').textContent = counts.rejected;
+}
+
+function renderUsers() {
+  const filtered = currentFilter === 'all' ? allUsers : allUsers.filter(u => u.status === currentFilter);
+  const container = document.getElementById('content');
+  if (filtered.length === 0) {
+    container.innerHTML = '<div class="empty-state"><div class="empty-icon">🧠</div><div class="empty-title">暂无' +
+      (currentFilter === 'all' ? '' : (currentFilter === 'confirmed' ? '已确认的' : currentFilter === 'candidate' ? '候选的' : '已拒绝的')) +
+      '聪明钱地址</div><div class="empty-sub">大额低价买入交易的地址会自动成为候选人</div></div>';
+    return;
+  }
+  container.innerHTML = filtered.map(renderUserCard).join('');
+}
+
+function renderUserCard(u) {
+  const name = u.display_name || u.alias || u.name || shortAddr(u.address);
+  const initial = name.charAt(0).toUpperCase();
+  const profileUrl = `https://polymarket.com/profile/${u.address}`;
+  const statusCls = u.status || 'candidate';
+  const statusLabel = u.status === 'confirmed' ? '已确认' : u.status === 'rejected' ? '已拒绝' : '候选';
+  const winRatePct = u.win_rate != null ? (u.win_rate * 100).toFixed(1) : '0.0';
+  const roiCls = (u.roi || 0) >= 0 ? 'positive' : 'negative';
+  const roiStr = (u.roi || 0) >= 0 ? '+' + (u.roi || 0).toFixed(1) : (u.roi || 0).toFixed(1);
+  const vol = u.total_volume >= 1000 ? '$' + Math.round(u.total_volume).toLocaleString() : '$' + (u.total_volume || 0).toFixed(0);
+
+  let actions = '';
+  if (u.status === 'candidate') {
+    actions = `<button class="action-btn confirm" onclick="updateStatus('${esc(u.address)}','confirmed')">✅ 确认</button>
+      <button class="action-btn reject" onclick="updateStatus('${esc(u.address)}','rejected')">❌ 拒绝</button>`;
+  } else if (u.status === 'confirmed') {
+    actions = `<button class="action-btn reject" onclick="updateStatus('${esc(u.address)}','rejected')">❌ 降级</button>`;
+  } else {
+    actions = `<button class="action-btn confirm" onclick="updateStatus('${esc(u.address)}','confirmed')">✅ 恢复</button>`;
+  }
+  actions += `<button class="action-btn delete" onclick="deleteUser('${esc(u.address)}')">🗑</button>`;
+
+  return `<div class="user-card">
+    <div class="user-avatar">${initial}</div>
+    <div class="user-info">
+      <div class="user-name"><a href="${esc(profileUrl)}" target="_blank">${esc(name)}</a> <span class="status-badge ${statusCls}">${statusLabel}</span></div>
+      <div class="user-addr">${esc(u.address)}</div>
+      <div class="user-stats">
+        <span class="stat">胜率: <span class="stat-val">${winRatePct}%</span></span>
+        <span class="stat">ROI: <span class="stat-val ${roiCls}">${roiStr}%</span></span>
+        <span class="stat">交易: <span class="stat-val">${u.total_trades || 0}</span></span>
+        <span class="stat">交易量: <span class="stat-val">${vol}</span></span>
+        <span class="stat">来源: <span class="stat-val">${u.source || 'auto'}</span></span>
+      </div>
+    </div>
+    <div class="user-actions">${actions}</div>
+  </div>`;
+}
+
+// Actions
+async function updateStatus(address, status) {
+  const token = getToken();
+  if (!token) { toast('请先设置管理员 Token', false); return; }
+  try {
+    const resp = await fetch(`${API}/api/smart-money/${address}/status`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token },
+      body: JSON.stringify({ status })
+    });
+    const data = await resp.json();
+    if (!resp.ok) { toast(data.error || '操作失败', false); return; }
+    toast(`已${status === 'confirmed' ? '确认' : status === 'rejected' ? '拒绝' : '更新'}: ${shortAddr(address)}`, true);
+    await fetchUsers();
+  } catch (e) { toast('请求失败: ' + e.message, false); }
+}
+
+async function deleteUser(address) {
+  const token = getToken();
+  if (!token) { toast('请先设置管理员 Token', false); return; }
+  if (!confirm('确认删除 ' + shortAddr(address) + '?')) return;
+  try {
+    const resp = await fetch(`${API}/api/smart-money/${address}`, {
+      method: 'DELETE',
+      headers: { 'Authorization': 'Bearer ' + token }
+    });
+    const data = await resp.json();
+    if (!resp.ok) { toast(data.error || '删除失败', false); return; }
+    toast('已删除: ' + shortAddr(address), true);
+    await fetchUsers();
+  } catch (e) { toast('请求失败: ' + e.message, false); }
+}
+
+// Add modal
+function openAddPanel() { document.getElementById('add-panel').classList.add('open'); document.getElementById('add-addr').focus(); }
+function closeAddPanel() { document.getElementById('add-panel').classList.remove('open'); }
+
+async function addSmartMoney() {
+  const addr = document.getElementById('add-addr').value.trim();
+  const alias = document.getElementById('add-alias').value.trim();
+  const token = getToken();
+  if (!token) { toast('请先设置管理员 Token', false); return; }
+  if (!addr || !addr.startsWith('0x') || addr.length !== 42) { toast('请输入有效地址 (0x, 42字符)', false); return; }
+
+  const btn = document.getElementById('add-btn');
+  btn.disabled = true; btn.textContent = '添加中…';
+  try {
+    const resp = await fetch(`${API}/api/smart-money`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token },
+      body: JSON.stringify({ address: addr, alias })
+    });
+    const data = await resp.json();
+    if (!resp.ok) { toast(data.error || '添加失败', false); return; }
+    toast('已添加: ' + shortAddr(addr), true);
+    document.getElementById('add-addr').value = '';
+    document.getElementById('add-alias').value = '';
+    closeAddPanel();
+    await fetchUsers();
+  } catch (e) { toast('请求失败: ' + e.message, false); }
+  finally { btn.disabled = false; btn.textContent = '添加'; }
+}
+
+// Keyboard shortcuts
+document.getElementById('add-addr').addEventListener('keydown', e => { if (e.key === 'Enter') { const a = document.getElementById('add-alias'); if (!a.value.trim()) a.focus(); else addSmartMoney(); }});
+document.getElementById('add-alias').addEventListener('keydown', e => { if (e.key === 'Enter') addSmartMoney(); });
+document.addEventListener('keydown', e => { if (e.key === 'Escape') closeAddPanel(); });
+
+// Init
+loadToken();
+fetchUsers();
+setInterval(fetchUsers, 30000);
+</script>
+</body>
+</html>

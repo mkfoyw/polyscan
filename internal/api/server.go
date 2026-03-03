@@ -24,6 +24,8 @@ type Server struct {
 	whaleTradStore  *store.WhaleTradStore
 	priceStore      *store.PriceEventStore
 	settlementStore *store.SettlementStore
+	smUserStore     *store.SmartMoneyUserStore
+	smTradeStore    *store.SmartMoneyTradeStore
 	tracker         *whale.Tracker
 	adminTokens     map[string]struct{}
 	topMoversFn     func(time.Duration, int) []types.PriceMover
@@ -33,6 +35,12 @@ type Server struct {
 
 	// ProfileLookup resolves a wallet address to a display name (optional).
 	ProfileLookup func(ctx context.Context, proxyWallet string) string
+
+	// SmartMoneyScanner provides smart money management methods (optional).
+	SmartMoneyScanner interface {
+		AddManual(ctx context.Context, address, alias string) error
+		Remove(ctx context.Context, address string) error
+	}
 }
 
 // NewServer creates a new API server.
@@ -46,6 +54,8 @@ func NewServer(
 	whaleTradStore *store.WhaleTradStore,
 	priceStore *store.PriceEventStore,
 	settlementStore *store.SettlementStore,
+	smUserStore *store.SmartMoneyUserStore,
+	smTradeStore *store.SmartMoneyTradeStore,
 	tracker *whale.Tracker,
 	topMoversFn func(time.Duration, int) []types.PriceMover,
 	broker *Broker,
@@ -59,6 +69,8 @@ func NewServer(
 		whaleTradStore:  whaleTradStore,
 		priceStore:      priceStore,
 		settlementStore: settlementStore,
+		smUserStore:     smUserStore,
+		smTradeStore:    smTradeStore,
 		tracker:         tracker,
 		adminTokens:     toSet(adminTokens),
 		topMoversFn:     topMoversFn,
@@ -88,15 +100,23 @@ func NewServer(
 		api.GET("/settlements", s.handleSettlements)
 		api.GET("/events", s.handleSSE) // SSE real-time push
 
+		// Smart money endpoints
+		api.GET("/smart-money", s.handleSmartMoney)
+		api.GET("/smart-money-trades", s.handleSmartMoneyTrades)
+
 		// Admin endpoints (require admin_token)
 		admin := api.Group("", s.adminAuth())
 		admin.POST("/whales", s.handleAddWhale)
 		admin.DELETE("/whales/:address", s.handleDeleteWhale)
+		admin.POST("/smart-money", s.handleAddSmartMoney)
+		admin.DELETE("/smart-money/:address", s.handleDeleteSmartMoney)
+		admin.PUT("/smart-money/:address/status", s.handleUpdateSmartMoneyStatus)
 	}
 
 	// Serve frontend pages
 	r.GET("/", func(c *gin.Context) { c.File("web/index.html") })
 	r.GET("/whales", func(c *gin.Context) { c.File("web/whales.html") })
+	r.GET("/smartmoney", func(c *gin.Context) { c.File("web/smartmoney.html") })
 
 	s.httpServer = &http.Server{
 		Addr:        addr,
@@ -629,6 +649,187 @@ func (s *Server) handleSettlements(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, records)
+}
+
+// --- Smart Money Handlers ---
+
+func (s *Server) handleSmartMoney(c *gin.Context) {
+	if s.smUserStore == nil {
+		c.JSON(http.StatusOK, []store.SmartMoneyUser{})
+		return
+	}
+	ctx := c.Request.Context()
+	status := c.Query("status") // filter by status: candidate, confirmed, rejected
+
+	var users []store.SmartMoneyUser
+	var err error
+	if status != "" {
+		users, err = s.smUserStore.GetByStatus(ctx, status)
+	} else {
+		users, err = s.smUserStore.GetAll(ctx)
+	}
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	type smResp struct {
+		store.SmartMoneyUser
+		DisplayName string `json:"display_name,omitempty"`
+	}
+	resp := make([]smResp, len(users))
+	for i, u := range users {
+		resp[i] = smResp{SmartMoneyUser: u, DisplayName: u.DisplayName()}
+	}
+
+	c.JSON(http.StatusOK, resp)
+}
+
+func (s *Server) handleSmartMoneyTrades(c *gin.Context) {
+	if s.smUserStore == nil || s.smTradeStore == nil {
+		c.JSON(http.StatusOK, []store.SmartMoneyTrade{})
+		return
+	}
+	ctx := c.Request.Context()
+	limit := queryInt(c, "limit", 50)
+	beforeTS := queryInt64(c, "before", 0)
+	minUSD := queryFloat(c, "min_usd", 0)
+	maxPrice := queryFloat(c, "max_price", 0)
+	walletFilter := strings.ToLower(strings.TrimSpace(c.Query("wallet")))
+
+	// Get all confirmed smart money addresses
+	confirmed, err := s.smUserStore.GetConfirmed(ctx)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	if len(confirmed) == 0 {
+		c.JSON(http.StatusOK, []store.SmartMoneyTrade{})
+		return
+	}
+
+	// Build name map
+	type smNames struct {
+		Name      string
+		Pseudonym string
+		Alias     string
+	}
+	nameMap := make(map[string]smNames, len(confirmed))
+	var addrs []string
+	for _, u := range confirmed {
+		nameMap[u.Address] = smNames{Name: u.Name, Pseudonym: u.Pseudonym, Alias: u.Alias}
+		if walletFilter != "" {
+			if strings.EqualFold(u.Address, walletFilter) {
+				addrs = []string{u.Address}
+			}
+		} else {
+			addrs = append(addrs, u.Address)
+		}
+	}
+	if len(addrs) == 0 {
+		c.JSON(http.StatusOK, []store.SmartMoneyTrade{})
+		return
+	}
+
+	trades, err := s.smTradeStore.Recent(ctx, addrs, int64(limit), beforeTS, minUSD, maxPrice)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	// Enrich with display names
+	for i := range trades {
+		if sn, ok := nameMap[trades[i].ProxyWallet]; ok {
+			displayName := sn.Name
+			if displayName == "" {
+				displayName = sn.Pseudonym
+			}
+			if displayName != "" && displayName != trades[i].ProxyWallet {
+				if sn.Alias != "" {
+					trades[i].ProfileName = displayName + " (" + sn.Alias + ")"
+				} else {
+					trades[i].ProfileName = displayName
+				}
+			} else if sn.Alias != "" {
+				trades[i].ProfileName = sn.Alias
+			}
+		}
+	}
+
+	c.JSON(http.StatusOK, trades)
+}
+
+func (s *Server) handleAddSmartMoney(c *gin.Context) {
+	if s.SmartMoneyScanner == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "smart money not enabled"})
+		return
+	}
+	ctx := c.Request.Context()
+	var req struct {
+		Address string `json:"address" binding:"required"`
+		Alias   string `json:"alias"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "address is required"})
+		return
+	}
+	req.Address = strings.ToLower(strings.TrimSpace(req.Address))
+	if !strings.HasPrefix(req.Address, "0x") || len(req.Address) != 42 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid Ethereum address"})
+		return
+	}
+	if err := s.SmartMoneyScanner.AddManual(ctx, req.Address, req.Alias); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	s.logger.Info("smart money added via API", "address", req.Address, "alias", req.Alias)
+	c.JSON(http.StatusOK, gin.H{"ok": true, "address": req.Address, "alias": req.Alias})
+}
+
+func (s *Server) handleDeleteSmartMoney(c *gin.Context) {
+	if s.SmartMoneyScanner == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "smart money not enabled"})
+		return
+	}
+	ctx := c.Request.Context()
+	address := strings.ToLower(strings.TrimSpace(c.Param("address")))
+	if err := s.SmartMoneyScanner.Remove(ctx, address); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	s.logger.Info("smart money removed via API", "address", address)
+	c.JSON(http.StatusOK, gin.H{"ok": true, "address": address})
+}
+
+func (s *Server) handleUpdateSmartMoneyStatus(c *gin.Context) {
+	if s.smUserStore == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "smart money not enabled"})
+		return
+	}
+	ctx := c.Request.Context()
+	address := strings.ToLower(strings.TrimSpace(c.Param("address")))
+	var req struct {
+		Status string `json:"status" binding:"required"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "status is required"})
+		return
+	}
+	if req.Status != store.SMStatusCandidate && req.Status != store.SMStatusConfirmed && req.Status != store.SMStatusRejected {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid status, must be candidate/confirmed/rejected"})
+		return
+	}
+	if err := s.smUserStore.UpdateStatus(ctx, address, req.Status); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	s.logger.Info("smart money status updated", "address", address, "status", req.Status)
+	c.JSON(http.StatusOK, gin.H{"ok": true, "address": address, "status": req.Status})
+}
+
+// PublishSmartMoneyTrade sends a new smart money trade to SSE clients.
+func (s *Server) PublishSmartMoneyTrade(t store.SmartMoneyTrade) {
+	s.PublishEvent("smart_money_trade", t)
 }
 
 // corsMiddleware returns a Gin middleware that adds CORS headers.
