@@ -125,6 +125,14 @@ func (s *SmartMoneyUserStore) GetByAddress(ctx context.Context, address string) 
 	return &u, nil
 }
 
+// UpdateAlias updates the alias of a smart money user.
+func (s *SmartMoneyUserStore) UpdateAlias(ctx context.Context, address, alias string) error {
+	_, err := s.wdb.ExecContext(ctx,
+		`UPDATE smart_money_users SET alias = ?, updated_at = ? WHERE address = ?`,
+		alias, time.Now().Unix(), address)
+	return err
+}
+
 // UpdateStatus updates the status of a smart money user.
 func (s *SmartMoneyUserStore) UpdateStatus(ctx context.Context, address, status string) error {
 	_, err := s.wdb.ExecContext(ctx,

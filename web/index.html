@@ -112,6 +112,51 @@ body {
   border-color: #1f6feb;
   color: #fff;
 }
+.price-range {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 16px 10px;
+  font-size: 12px;
+  color: #8b949e;
+}
+.price-range label { white-space: nowrap; }
+.price-range input[type=number] {
+  width: 60px;
+  padding: 4px 8px;
+  border-radius: 8px;
+  border: 1px solid #30363d;
+  background: #161b22;
+  color: #c9d1d9;
+  font-size: 12px;
+  -moz-appearance: textfield;
+}
+.price-range input[type=number]::-webkit-inner-spin-button,
+.price-range input[type=number]::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
+.price-range input[type=number]:focus { border-color: #1f6feb; outline: none; }
+.price-range .sep { color: #484f58; }
+.price-ticks {
+  display: flex;
+  gap: 2px;
+  padding: 0 16px 8px;
+  flex-wrap: wrap;
+}
+.price-ticks button {
+  padding: 2px 6px;
+  border-radius: 10px;
+  border: 1px solid #30363d;
+  background: transparent;
+  color: #6e7681;
+  font-size: 10px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.price-ticks button:hover { border-color: #58a6ff; color: #58a6ff; }
+.sm-actions { display:inline-flex; gap:4px; margin-left:6px; flex-shrink:0; vertical-align:middle; }
+.sm-act { padding:1px 5px; border-radius:5px; border:1px solid #30363d; background:transparent; color:#6e7681; font-size:10px; cursor:pointer; transition:all .15s; line-height:1.4; }
+.sm-act:hover { border-color:#58a6ff; color:#58a6ff; }
+.sm-act.del:hover { border-color:#f85149; color:#f85149; }
+.sm-act.down:hover { border-color:#d29922; color:#d29922; }
 .list {
   flex: 1;
   overflow-y: auto;
@@ -320,14 +365,24 @@ body {
       <button class="filter-btn" data-min="50000">$50,000+</button>
       <button class="filter-btn" data-min="100000">$100,000+</button>
     </div>
-    <div class="filters" id="trade-price-filters">
-      <button class="filter-btn active" data-minprice="0" data-maxprice="0">全部价格</button>
-      <button class="filter-btn" data-minprice="0" data-maxprice="0.10">&le;10¢</button>
-      <button class="filter-btn" data-minprice="0.10" data-maxprice="0.30">10¢-30¢</button>
-      <button class="filter-btn" data-minprice="0.30" data-maxprice="0.50">30¢-50¢</button>
-      <button class="filter-btn" data-minprice="0.50" data-maxprice="0.70">50¢-70¢</button>
-      <button class="filter-btn" data-minprice="0.70" data-maxprice="0.90">70¢-90¢</button>
-      <button class="filter-btn" data-minprice="0.90" data-maxprice="0">&ge;90¢</button>
+    <div class="price-range" id="trade-price-range">
+      <label>价格</label>
+      <input type="number" id="trade-price-min" placeholder="最小" min="0" max="100" step="1" value="0">
+      <span class="sep">—</span>
+      <input type="number" id="trade-price-max" placeholder="最大" min="0" max="100" step="1" value="70">
+    </div>
+    <div class="price-ticks" id="trade-price-ticks">
+      <button data-val="0">0</button>
+      <button data-val="10">10</button>
+      <button data-val="20">20</button>
+      <button data-val="30">30</button>
+      <button data-val="40">40</button>
+      <button data-val="50">50</button>
+      <button data-val="60">60</button>
+      <button data-val="70">70</button>
+      <button data-val="80">80</button>
+      <button data-val="90">90</button>
+      <button data-val="100">100</button>
     </div>
     <div class="list" id="trade-list"></div>
   </div>
@@ -519,7 +574,7 @@ applyColumnLayout();
 // ============================================================
 let priceWindow = '5m';
 let tradeMinUSD = 1000;
-let tradeMaxPrice = 0;
+let tradeMaxPrice = 0.70;
 let tradeMinPrice = 0;
 let whaleMaxPrice = 0;
 let smMaxPrice = 0;
@@ -561,17 +616,41 @@ document.getElementById('trade-filters').addEventListener('click', e => {
   fetchTrades();
 });
 
-document.getElementById('trade-price-filters').addEventListener('click', e => {
-  const btn = e.target.closest('.filter-btn');
-  if (!btn) return;
-  document.querySelectorAll('#trade-price-filters .filter-btn').forEach(b => b.classList.remove('active'));
-  btn.classList.add('active');
-  tradeMaxPrice = parseFloat(btn.dataset.maxprice);
-  tradeMinPrice = parseFloat(btn.dataset.minprice);
-  resetPaging('trades');
-  document.getElementById('trade-list').innerHTML = '';
-  fetchTrades();
+document.querySelectorAll('#trade-price-range input').forEach(input => {
+  let debounceTimer;
+  input.addEventListener('input', () => {
+    clearTimeout(debounceTimer);
+    debounceTimer = setTimeout(() => {
+      tradeMinPrice = (parseInt(document.getElementById('trade-price-min').value) || 0) / 100;
+      tradeMaxPrice = (parseInt(document.getElementById('trade-price-max').value) || 0) / 100;
+      resetPaging('trades');
+      document.getElementById('trade-list').innerHTML = '';
+      fetchTrades();
+    }, 500);
+  });
 });
+
+// Price quick-select ticks: fill whichever input is focused (default: min)
+{
+  let activeInput = document.getElementById('trade-price-min');
+  const minInput = document.getElementById('trade-price-min');
+  const maxInput = document.getElementById('trade-price-max');
+  minInput.addEventListener('focus', () => { activeInput = minInput; });
+  maxInput.addEventListener('focus', () => { activeInput = maxInput; });
+  const applyPrice = () => {
+    tradeMinPrice = (parseInt(minInput.value) || 0) / 100;
+    tradeMaxPrice = (parseInt(maxInput.value) || 0) / 100;
+    resetPaging('trades');
+    document.getElementById('trade-list').innerHTML = '';
+    fetchTrades();
+  };
+  document.getElementById('trade-price-ticks').addEventListener('click', e => {
+    const btn = e.target.closest('button');
+    if (!btn) return;
+    activeInput.value = btn.dataset.val;
+    applyPrice();
+  });
+}
 
 document.getElementById('whale-price-filters').addEventListener('click', e => {
   const btn = e.target.closest('.filter-btn');
@@ -851,7 +930,7 @@ function renderSmartMoneyTrades(trades) {
     list.innerHTML = '<div class="empty-state">暂无聪明钱交易数据<br>当确认的聪明钱钱包有交易时会显示在这里</div>';
     return;
   }
-  list.innerHTML = trades.map(renderTradeItem).join('');
+  list.innerHTML = trades.map(renderSmTradeItem).join('');
 }
 
 function tradeKey(t) {
@@ -860,6 +939,12 @@ function tradeKey(t) {
 }
 
 function renderTradeItem(t) {
+  return _renderTradeItem(t, false);
+}
+function renderSmTradeItem(t) {
+  return _renderTradeItem(t, true);
+}
+function _renderTradeItem(t, showSmActions) {
   const rawName = t.profile_name || t.pseudonym || shortAddr(t.proxy_wallet) || '匿名';
   const name = rawName.length > 20 ? rawName.slice(0, 17) + '...' : rawName;
   const side = (t.side || '').toUpperCase();
@@ -893,7 +978,11 @@ function renderTradeItem(t) {
           ? '<a href="' + esc(eventUrl) + '" target="_blank" style="color:#8b949e;text-decoration:none">' + esc(t.title) + '</a>'
           : esc(t.title);
       })() : ''}</div>
-      <div class="trade-time" data-ts="${ts}">${timeAgo}</div>
+      <div class="trade-time" data-ts="${ts}">${timeAgo}${showSmActions && t.proxy_wallet ? `<span class="sm-actions">
+        <button class="sm-act" onclick="smRename('${esc(t.proxy_wallet)}')" title="修改昵称">✏</button>
+        <button class="sm-act down" onclick="smDown('${esc(t.proxy_wallet)}')" title="降级为候选">⬇</button>
+        <button class="sm-act del" onclick="smDel('${esc(t.proxy_wallet)}')" title="删除聪明钱">✖</button>
+      </span>` : ''}</div>
     </div>
   </div>`;
 }
@@ -977,7 +1066,7 @@ function appendSmartMoneyTrades(items) {
   const list = document.getElementById('sm-trade-list');
   const empty = list.querySelector('.empty-state');
   if (empty) empty.remove();
-  list.insertAdjacentHTML('beforeend', items.map(renderTradeItem).join(''));
+  list.insertAdjacentHTML('beforeend', items.map(renderSmTradeItem).join(''));
 }
 
 function prependSmartMoneyTrade(item) {
@@ -988,17 +1077,17 @@ function prependSmartMoneyTrade(item) {
   const key = tradeKey(item);
   const ts = item.timestamp || 0;
   const existing = list.querySelector(`[data-key="${CSS.escape(key)}"]`);
-  if (existing) { existing.outerHTML = renderTradeItem(item); return; }
+  if (existing) { existing.outerHTML = renderSmTradeItem(item); return; }
   const items = list.querySelectorAll('.item[data-ts]');
   let inserted = false;
   for (const el of items) {
     if (ts > (parseInt(el.dataset.ts, 10) || 0)) {
-      el.insertAdjacentHTML('beforebegin', renderTradeItem(item));
+      el.insertAdjacentHTML('beforebegin', renderSmTradeItem(item));
       inserted = true;
       break;
     }
   }
-  if (!inserted) list.insertAdjacentHTML('beforeend', renderTradeItem(item));
+  if (!inserted) list.insertAdjacentHTML('beforeend', renderSmTradeItem(item));
 }
 
 function prependTrade(item) {
@@ -1206,6 +1295,56 @@ document.getElementById('wm-addr').addEventListener('keydown', function(e) {
 document.getElementById('wm-alias').addEventListener('keydown', function(e) { if (e.key === 'Enter') submitWhale(); });
 document.getElementById('wm-token').addEventListener('keydown', function(e) { if (e.key === 'Enter') submitWhale(); });
 document.addEventListener('keydown', function(e) { if (e.key === 'Escape') { closeWhaleModal(); closeSmModal(); } });
+
+// --- Smart money quick actions (from trade list) ---
+function smRename(addr) {
+  var token = localStorage.getItem('polyscan_admin_token');
+  if (!token) { token = prompt('请输入管理员 Token'); if (!token) return; localStorage.setItem('polyscan_admin_token', token); }
+  var alias = prompt('输入新昵称 (留空清除):', '');
+  if (alias === null) return;
+  alias = alias.trim();
+  fetch('/api/smart-money/' + addr, {
+    method: 'PATCH',
+    headers: { 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ alias: alias })
+  }).then(function(r){ return r.json().then(function(d){ return {ok:r.ok, data:d}; }); })
+  .then(function(res) {
+    if (!res.ok) { wmToast(res.data.error || '修改失败', false); return; }
+    wmToast('昵称已更新: ' + (alias || '(已清除)'), true);
+  }).catch(function(e){ wmToast('请求失败: ' + e.message, false); });
+}
+function smDown(addr) {
+  var token = localStorage.getItem('polyscan_admin_token');
+  if (!token) { token = prompt('请输入管理员 Token'); if (!token) return; localStorage.setItem('polyscan_admin_token', token); }
+  if (!confirm('确认将 ' + addr.slice(0,6) + '…' + addr.slice(-4) + ' 降级为候选?')) return;
+  fetch('/api/smart-money/' + addr + '/status', {
+    method: 'PUT',
+    headers: { 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ status: 'candidate' })
+  }).then(function(r){ return r.json().then(function(d){ return {ok:r.ok, data:d}; }); })
+  .then(function(res) {
+    if (!res.ok) { wmToast(res.data.error || '降级失败', false); return; }
+    wmToast('已降级: ' + addr.slice(0,6) + '…', true);
+  }).catch(function(e){ wmToast('请求失败: ' + e.message, false); });
+}
+function smDel(addr) {
+  var token = localStorage.getItem('polyscan_admin_token');
+  if (!token) { token = prompt('请输入管理员 Token'); if (!token) return; localStorage.setItem('polyscan_admin_token', token); }
+  if (!confirm('确认删除聪明钱 ' + addr.slice(0,6) + '…' + addr.slice(-4) + '?')) return;
+  fetch('/api/smart-money/' + addr, {
+    method: 'DELETE',
+    headers: { 'Authorization': 'Bearer ' + token }
+  }).then(function(r){ return r.json().then(function(d){ return {ok:r.ok, data:d}; }); })
+  .then(function(res) {
+    if (!res.ok) { wmToast(res.data.error || '删除失败', false); return; }
+    wmToast('已删除: ' + addr.slice(0,6) + '…', true);
+    // Remove items with this wallet from the SM list
+    document.querySelectorAll('#sm-trade-list .item').forEach(function(el) {
+      var link = el.querySelector('a.trade-user');
+      if (link && link.href && link.href.includes(addr)) el.remove();
+    });
+  }).catch(function(e){ wmToast('请求失败: ' + e.message, false); });
+}
 
 // --- Smart money modal ---
 function openSmModal() {

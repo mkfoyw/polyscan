@@ -111,6 +111,7 @@ func NewServer(
 		admin.POST("/smart-money", s.handleAddSmartMoney)
 		admin.DELETE("/smart-money/:address", s.handleDeleteSmartMoney)
 		admin.PUT("/smart-money/:address/status", s.handleUpdateSmartMoneyStatus)
+		admin.PATCH("/smart-money/:address", s.handleUpdateSmartMoneyAlias)
 	}
 
 	// Serve frontend pages
@@ -317,20 +318,8 @@ func (s *Server) handleWhaleTrades(c *gin.Context) {
 	// Enrich trades with display names: prioritize Polymarket name, append alias in parentheses
 	for i := range trades {
 		if wn, ok := nameMap[trades[i].ProxyWallet]; ok {
-			// Pick the best Polymarket display name: Name > Pseudonym
-			displayName := wn.Name
-			if displayName == "" {
-				displayName = wn.Pseudonym
-			}
-			if displayName != "" && displayName != trades[i].ProxyWallet {
-				if wn.Alias != "" {
-					trades[i].ProfileName = displayName + " (" + wn.Alias + ")"
-				} else {
-					trades[i].ProfileName = displayName
-				}
-			} else if wn.Alias != "" {
-				// No Polymarket name, just show alias
-				trades[i].ProfileName = wn.Alias
+			if dn := resolveDisplayName(wn.Name, wn.Pseudonym, wn.Alias); dn != "" {
+				trades[i].ProfileName = dn
 			}
 		}
 	}
@@ -347,6 +336,36 @@ func toSet(ss []string) map[string]struct{} {
 		}
 	}
 	return m
+}
+
+// resolveDisplayName picks the best human-readable name from name/pseudonym/alias.
+// Returns empty string if nothing useful is available.
+func resolveDisplayName(name, pseudonym, alias string) string {
+	dn := name
+	if dn == "" {
+		dn = pseudonym
+	}
+	// Truncate address-like names (e.g. "0xDd9D902e3C...-1772597907584" → "0xDd9D...1b730")
+	if strings.HasPrefix(strings.ToLower(dn), "0x") {
+		// Extract just the address part (first 42 chars or up to a separator)
+		addr := dn
+		if idx := strings.IndexByte(addr, '-'); idx > 0 {
+			addr = addr[:idx]
+		}
+		if len(addr) > 10 {
+			dn = addr[:6] + "…" + addr[len(addr)-4:]
+		}
+	}
+	if dn != "" {
+		if alias != "" {
+			return dn + " (" + alias + ")"
+		}
+		return dn
+	}
+	if alias != "" {
+		return alias
+	}
+	return ""
 }
 
 // adminAuth returns middleware that checks the admin token.
@@ -741,18 +760,8 @@ func (s *Server) handleSmartMoneyTrades(c *gin.Context) {
 	// Enrich with display names
 	for i := range trades {
 		if sn, ok := nameMap[trades[i].ProxyWallet]; ok {
-			displayName := sn.Name
-			if displayName == "" {
-				displayName = sn.Pseudonym
-			}
-			if displayName != "" && displayName != trades[i].ProxyWallet {
-				if sn.Alias != "" {
-					trades[i].ProfileName = displayName + " (" + sn.Alias + ")"
-				} else {
-					trades[i].ProfileName = displayName
-				}
-			} else if sn.Alias != "" {
-				trades[i].ProfileName = sn.Alias
+			if dn := resolveDisplayName(sn.Name, sn.Pseudonym, sn.Alias); dn != "" {
+				trades[i].ProfileName = dn
 			}
 		}
 	}
@@ -828,8 +837,39 @@ func (s *Server) handleUpdateSmartMoneyStatus(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"ok": true, "address": address, "status": req.Status})
 }
 
+func (s *Server) handleUpdateSmartMoneyAlias(c *gin.Context) {
+	if s.smUserStore == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "smart money not enabled"})
+		return
+	}
+	ctx := c.Request.Context()
+	address := strings.ToLower(strings.TrimSpace(c.Param("address")))
+	var req struct {
+		Alias string `json:"alias"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request"})
+		return
+	}
+	req.Alias = strings.TrimSpace(req.Alias)
+	if err := s.smUserStore.UpdateAlias(ctx, address, req.Alias); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	s.logger.Info("smart money alias updated", "address", address, "alias", req.Alias)
+	c.JSON(http.StatusOK, gin.H{"ok": true, "address": address, "alias": req.Alias})
+}
+
 // PublishSmartMoneyTrade sends a new smart money trade to SSE clients.
 func (s *Server) PublishSmartMoneyTrade(t store.SmartMoneyTrade) {
+	// Enrich with display name if not already set
+	if t.ProfileName == "" && t.ProxyWallet != "" && s.smUserStore != nil {
+		if u, err := s.smUserStore.GetByAddress(context.Background(), t.ProxyWallet); err == nil && u != nil {
+			if dn := resolveDisplayName(u.Name, u.Pseudonym, u.Alias); dn != "" {
+				t.ProfileName = dn
+			}
+		}
+	}
 	s.PublishEvent("smart_money_trade", t)
 }
 
@@ -837,7 +877,7 @@ func (s *Server) PublishSmartMoneyTrade(t store.SmartMoneyTrade) {
 func corsMiddleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		c.Header("Access-Control-Allow-Origin", "*")
-		c.Header("Access-Control-Allow-Methods", "GET, OPTIONS")
+		c.Header("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS")
 		c.Header("Access-Control-Allow-Headers", "Content-Type, Authorization")
 		c.Header("Cache-Control", "no-store")
 
