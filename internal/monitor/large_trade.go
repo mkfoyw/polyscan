@@ -30,6 +30,10 @@ type LargeTrade struct {
 	// only triggered from REST poller data.
 	OnLargeTradeREST func(proxyWallet string, usdValue float64, price float64, side string, question string)
 
+	// OnSmartMoneyCandidate is called for every REST trade with wallet info,
+	// independent of whale filters. Used for smart money candidate discovery.
+	OnSmartMoneyCandidate func(proxyWallet string, usdValue float64, price float64, side string, question string)
+
 	// OnTradeStored is called whenever a trade is stored in the database.
 	// Used to push real-time updates to SSE clients.
 	OnTradeStored func(store.TradeRecord)
@@ -239,6 +243,11 @@ func (lt *LargeTrade) ProcessRESTTrade(ctx context.Context, trade types.Trade) {
 	// Notify whale tracker
 	if lt.OnLargeTradeREST != nil && trade.ProxyWallet != "" {
 		lt.OnLargeTradeREST(trade.ProxyWallet, usdValue, trade.Price, trade.Side, trade.Title)
+	}
+
+	// Notify smart money candidate pipeline (independent of whale filters)
+	if lt.OnSmartMoneyCandidate != nil && trade.ProxyWallet != "" {
+		lt.OnSmartMoneyCandidate(trade.ProxyWallet, usdValue, trade.Price, trade.Side, trade.Title)
 	}
 
 	// Send Telegram alert only for low-probability outcomes (maxPrice filter)

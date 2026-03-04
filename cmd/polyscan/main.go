@@ -102,7 +102,7 @@ func main() {
 	wsClient := ws.NewClient(logger)
 
 	// 4. Market discovery
-	discovery := market.NewDiscovery(mktStore, settlementStore, cfg.MarketSyncInterval.Duration, logger)
+	discovery := market.NewDiscovery(mktStore, settlementStore, cfg.MarketSyncInterval.Duration, cfg.WatchSeries, logger)
 	discovery.OnNewMarkets = func(assetIDs []string) {
 		logger.Info("subscribing to new markets via WebSocket", "count", len(assetIDs))
 		wsClient.Subscribe(assetIDs)
@@ -143,16 +143,14 @@ func main() {
 	// Pre-declare smart money scanner so the callback below can reference it
 	var smScanner *smartmoney.Scanner
 
-	// Wire up auto-tracking: when a large trade is detected via REST, auto-track the wallet
+	// Wire up whale auto-tracking
 	{
 		minAmount := cfg.Whale.MinTradeAmount
 		maxBuyPrice := cfg.Whale.MaxBuyPrice
 		largeTradeMon.OnLargeTradeREST = func(proxyWallet string, usdValue float64, price float64, side string, question string) {
-			// Filter: single trade amount must >= min_trade_amount
 			if minAmount > 0 && usdValue < minAmount {
 				return
 			}
-			// Filter: only auto-track buys with price <= max_buy_price
 			if maxBuyPrice > 0 && (strings.ToUpper(side) != "BUY" || price > maxBuyPrice) {
 				return
 			}
@@ -165,11 +163,13 @@ func main() {
 				default:
 				}
 			}
+		}
+	}
 
-			// Also feed into smart money candidate discovery
-			if smScanner != nil {
-				smScanner.AddCandidate(ctx, proxyWallet, usdValue, price, side, question)
-			}
+	// Wire up smart money candidate discovery (independent, uses its own filters)
+	largeTradeMon.OnSmartMoneyCandidate = func(proxyWallet string, usdValue float64, price float64, side string, question string) {
+		if smScanner != nil {
+			smScanner.AddCandidate(ctx, proxyWallet, usdValue, price, side, question)
 		}
 	}
 

@@ -24,6 +24,7 @@ type Discovery struct {
 	client          *http.Client
 	logger          *slog.Logger
 	interval        time.Duration
+	watchSeries     []int // series IDs to always include
 
 	// OnNewMarkets is called whenever new markets are discovered.
 	// The callback receives a list of new asset IDs to subscribe to.
@@ -37,13 +38,14 @@ type Discovery struct {
 }
 
 // NewDiscovery creates a new market Discovery.
-func NewDiscovery(mktStore *types.MarketStore, settlementStore *store.SettlementStore, interval time.Duration, logger *slog.Logger) *Discovery {
+func NewDiscovery(mktStore *types.MarketStore, settlementStore *store.SettlementStore, interval time.Duration, watchSeries []int, logger *slog.Logger) *Discovery {
 	return &Discovery{
 		store:           mktStore,
 		settlementStore: settlementStore,
 		client:          &http.Client{Timeout: 60 * time.Second},
 		logger:          logger,
 		interval:        interval,
+		watchSeries:     watchSeries,
 	}
 }
 
@@ -143,6 +145,9 @@ func (d *Discovery) sync(ctx context.Context) {
 		d.OnNewMarkets(newAssetIDs)
 	}
 
+	// Sync watched series markets
+	d.syncWatchedSeries(ctx)
+
 	// Sync recently settled markets
 	d.syncSettlements(ctx)
 }
@@ -152,6 +157,75 @@ func (d *Discovery) fetchEvents(ctx context.Context, offset, limit int) ([]types
 	url := fmt.Sprintf("%s/events?active=true&closed=false&limit=%d&offset=%d&order=volume24hr&ascending=false",
 		gammaAPI, limit, offset)
 	return d.fetchEventsFromURL(ctx, url)
+}
+
+// syncWatchedSeries fetches events for each watched series and ensures their
+// markets are in the store (and subscribed via WebSocket).
+func (d *Discovery) syncWatchedSeries(ctx context.Context) {
+	if len(d.watchSeries) == 0 {
+		return
+	}
+
+	var newAssetIDs []string
+	totalNew := 0
+
+	for _, seriesID := range d.watchSeries {
+		if ctx.Err() != nil {
+			return
+		}
+
+		url := fmt.Sprintf("%s/events?series_id=%d&closed=false&limit=100", gammaAPI, seriesID)
+		events, err := d.fetchEventsFromURL(ctx, url)
+		if err != nil {
+			d.logger.Warn("failed to fetch series events", "series_id", seriesID, "error", err)
+			continue
+		}
+
+		for _, event := range events {
+			for _, m := range event.Markets {
+				if m.ConditionID == "" || m.ClobTokenIDs == "" {
+					continue
+				}
+				if err := m.ParseTokenIDs(); err != nil {
+					continue
+				}
+				if m.EventSlug == "" {
+					m.EventSlug = event.Slug
+				}
+				if m.Image == "" {
+					m.Image = event.Image
+				}
+				if len(event.Tags) > 0 {
+					m.Category = normalizeCategory(event.Tags[0].Slug)
+				}
+				if isNew := d.store.Upsert(m); isNew {
+					totalNew++
+					if m.YesTokenID != "" {
+						newAssetIDs = append(newAssetIDs, m.YesTokenID)
+					}
+					if m.NoTokenID != "" {
+						newAssetIDs = append(newAssetIDs, m.NoTokenID)
+					}
+					if d.OnNewMarketInfo != nil {
+						info := d.store.GetByCondition(m.ConditionID)
+						if info != nil {
+							d.OnNewMarketInfo(info)
+						}
+					}
+				}
+			}
+		}
+
+		d.logger.Info("synced watched series",
+			"series_id", seriesID,
+			"events", len(events),
+			"new_markets", totalNew,
+		)
+	}
+
+	if len(newAssetIDs) > 0 && d.OnNewMarkets != nil {
+		d.OnNewMarkets(newAssetIDs)
+	}
 }
 
 // fetchEventsFromURL fetches events from a given URL with retry logic.

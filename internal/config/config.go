@@ -29,6 +29,9 @@ type Config struct {
 	MarketSyncInterval Duration `yaml:"market_sync_interval"`
 	TradePollInterval  Duration `yaml:"trade_poll_interval"`
 
+	// Watched series — these series' markets are always included in discovery
+	WatchSeries []int `yaml:"watch_series"`
+
 	// Telegram
 	Telegram TelegramConfig `yaml:"telegram"`
 
