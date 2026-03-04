@@ -167,10 +167,10 @@ func (s *Scanner) analyze(ctx context.Context, req candidateReq) {
 	// Analyze trading performance
 	stats := s.computeStats(activities)
 
-	// Update stats in DB
+	// Update stats in DB (use rawTradeCount for actual trade count)
 	_ = s.userStore.UpdateStats(ctx, req.address,
 		stats.winRate, stats.roi,
-		stats.totalTrades, stats.winningTrades, stats.totalVolume,
+		stats.rawTradeCount, stats.winningTrades, stats.totalVolume,
 	)
 
 	// Resolve profile name
@@ -190,7 +190,8 @@ func (s *Scanner) analyze(ctx context.Context, req candidateReq) {
 
 	// Decision: few trades + large total buy = smart money.
 	// Too many trades → permanently rejected (frequent trader, not conviction player).
-	tooManyTrades := s.cfg.MaxTrades > 0 && stats.totalTrades > s.cfg.MaxTrades
+	// Use rawTradeCount (actual individual transactions), not grouped positions.
+	tooManyTrades := s.cfg.MaxTrades > 0 && stats.rawTradeCount > s.cfg.MaxTrades
 	meetsMinBuy := s.cfg.MinTotalBuy <= 0 || stats.totalBuyAmount >= s.cfg.MinTotalBuy
 
 	if tooManyTrades {
@@ -198,7 +199,7 @@ func (s *Scanner) analyze(ctx context.Context, req candidateReq) {
 		_ = s.userStore.UpdateStatus(ctx, req.address, store.SMStatusRejected)
 		s.logger.Info("smart money rejected: too many trades",
 			"address", req.address,
-			"trades", stats.totalTrades,
+			"raw_trades", stats.rawTradeCount,
 			"max_trades", s.cfg.MaxTrades,
 			"total_buy", fmt.Sprintf("$%.0f", stats.totalBuyAmount),
 		)
@@ -217,7 +218,8 @@ func (s *Scanner) analyze(ctx context.Context, req candidateReq) {
 		_ = s.userStore.UpdateStatus(ctx, req.address, store.SMStatusConfirmed)
 		s.logger.Info("smart money confirmed",
 			"address", req.address,
-			"trades", stats.totalTrades,
+			"raw_trades", stats.rawTradeCount,
+			"positions", stats.totalTrades,
 			"total_buy", fmt.Sprintf("$%.0f", stats.totalBuyAmount),
 			"volume", stats.totalVolume,
 		)
@@ -226,7 +228,7 @@ func (s *Scanner) analyze(ctx context.Context, req candidateReq) {
 		_ = s.userStore.UpdateStatus(ctx, req.address, store.SMStatusRejected)
 		s.logger.Info("smart money rejected: insufficient buy amount",
 			"address", req.address,
-			"trades", stats.totalTrades,
+			"raw_trades", stats.rawTradeCount,
 			"total_buy", fmt.Sprintf("$%.0f", stats.totalBuyAmount),
 			"min_total_buy", fmt.Sprintf("$%.0f", s.cfg.MinTotalBuy),
 		)
@@ -234,7 +236,8 @@ func (s *Scanner) analyze(ctx context.Context, req candidateReq) {
 }
 
 type tradeStats struct {
-	totalTrades    int
+	rawTradeCount  int     // actual number of individual trade transactions
+	totalTrades    int     // number of unique positions (grouped by conditionID|outcome)
 	winningTrades  int
 	winRate        float64
 	roi            float64
@@ -258,11 +261,13 @@ func (s *Scanner) computeStats(activities []types.Activity) tradeStats {
 	var totalVolume float64
 
 	var totalBuyAmount float64
+	var rawTradeCount int
 
 	for _, act := range activities {
 		if act.Type != "TRADE" {
 			continue
 		}
+		rawTradeCount++
 		totalVolume += act.USDCSize
 
 		key := act.ConditionID + "|" + act.Outcome
@@ -315,6 +320,7 @@ func (s *Scanner) computeStats(activities []types.Activity) tradeStats {
 	}
 
 	stats := tradeStats{
+		rawTradeCount:  rawTradeCount,
 		totalTrades:    totalTrades,
 		winningTrades:  winningTrades,
 		totalVolume:    totalVolume,

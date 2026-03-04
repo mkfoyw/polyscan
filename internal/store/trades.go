@@ -100,7 +100,7 @@ func (s *TradeStore) RecentByWallet(ctx context.Context, wallet string, limit in
 // RecentLarge returns trades above a USD threshold, most recent first.
 // If beforeTS > 0, only returns trades older than that timestamp (cursor pagination).
 // If maxPrice > 0, only returns trades with price <= maxPrice.
-func (s *TradeStore) RecentLarge(ctx context.Context, minUSD float64, limit int64, beforeTS int64, maxPrice float64) ([]TradeRecord, error) {
+func (s *TradeStore) RecentLarge(ctx context.Context, minUSD float64, limit int64, beforeTS int64, maxPrice float64, minPrice float64) ([]TradeRecord, error) {
 	q := `SELECT ` + tradeCols + ` FROM trades WHERE usd_value >= ?`
 	args := []any{minUSD}
 	if beforeTS > 0 {
@@ -110,6 +110,10 @@ func (s *TradeStore) RecentLarge(ctx context.Context, minUSD float64, limit int6
 	if maxPrice > 0 {
 		q += ` AND price <= ?`
 		args = append(args, maxPrice)
+	}
+	if minPrice > 0 {
+		q += ` AND price >= ?`
+		args = append(args, minPrice)
 	}
 	q += ` ORDER BY timestamp DESC LIMIT ?`
 	args = append(args, limit)

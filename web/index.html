@@ -321,14 +321,13 @@ body {
       <button class="filter-btn" data-min="100000">$100,000+</button>
     </div>
     <div class="filters" id="trade-price-filters">
-      <button class="filter-btn active" data-maxprice="0">全部价格</button>
-      <button class="filter-btn" data-maxprice="0.10">&le;10¢</button>
-      <button class="filter-btn" data-maxprice="0.30">&le;30¢</button>
-      <button class="filter-btn" data-maxprice="0.40">&le;40¢</button>
-      <button class="filter-btn" data-maxprice="0.50">&le;50¢</button>
-      <button class="filter-btn" data-maxprice="0.60">&le;60¢</button>
-      <button class="filter-btn" data-maxprice="0.70">&le;70¢</button>
-      <button class="filter-btn" data-maxprice="0.80">&le;80¢</button>
+      <button class="filter-btn active" data-minprice="0" data-maxprice="0">全部价格</button>
+      <button class="filter-btn" data-minprice="0" data-maxprice="0.10">&le;10¢</button>
+      <button class="filter-btn" data-minprice="0.10" data-maxprice="0.30">10¢-30¢</button>
+      <button class="filter-btn" data-minprice="0.30" data-maxprice="0.50">30¢-50¢</button>
+      <button class="filter-btn" data-minprice="0.50" data-maxprice="0.70">50¢-70¢</button>
+      <button class="filter-btn" data-minprice="0.70" data-maxprice="0.90">70¢-90¢</button>
+      <button class="filter-btn" data-minprice="0.90" data-maxprice="0">&ge;90¢</button>
     </div>
     <div class="list" id="trade-list"></div>
   </div>
@@ -521,6 +520,7 @@ applyColumnLayout();
 let priceWindow = '5m';
 let tradeMinUSD = 1000;
 let tradeMaxPrice = 0;
+let tradeMinPrice = 0;
 let whaleMaxPrice = 0;
 let smMaxPrice = 0;
 let marketCategory = 'all';
@@ -567,6 +567,7 @@ document.getElementById('trade-price-filters').addEventListener('click', e => {
   document.querySelectorAll('#trade-price-filters .filter-btn').forEach(b => b.classList.remove('active'));
   btn.classList.add('active');
   tradeMaxPrice = parseFloat(btn.dataset.maxprice);
+  tradeMinPrice = parseFloat(btn.dataset.minprice);
   resetPaging('trades');
   document.getElementById('trade-list').innerHTML = '';
   fetchTrades();
@@ -655,7 +656,7 @@ async function fetchTrades(loadMore) {
   if (p.loading) return;
   p.loading = true;
   try {
-    let url = `${API}/api/trades?min_usd=${tradeMinUSD}&limit=${PAGE_SIZE}&_t=${Date.now()}${tradeMaxPrice > 0 ? '&max_price=' + tradeMaxPrice : ''}`;
+    let url = `${API}/api/trades?min_usd=${tradeMinUSD}&limit=${PAGE_SIZE}&_t=${Date.now()}${tradeMaxPrice > 0 ? '&max_price=' + tradeMaxPrice : ''}${tradeMinPrice > 0 ? '&min_price=' + tradeMinPrice : ''}`;
     if (loadMore && p.cursor) url += `&before=${p.cursor}`;
     const resp = await fetch(url);
     const data = await resp.json();
@@ -1020,6 +1021,7 @@ function _prependTradeToList(listId, item, applyFilters) {
   if (applyFilters) {
     if ((item.usd_value || 0) < tradeMinUSD) return;
     if (tradeMaxPrice > 0 && (item.price || 0) > tradeMaxPrice) return;
+    if (tradeMinPrice > 0 && (item.price || 0) < tradeMinPrice) return;
   }
 
   // Deduplicate by key

@@ -206,15 +206,16 @@ func (s *Server) handleTrades(c *gin.Context) {
 	limit := queryInt(c, "limit", 50)
 	minUSD := queryFloat(c, "min_usd", 0)
 	maxPrice := queryFloat(c, "max_price", 0) // e.g. 0.3 for ≤30¢
+	minPrice := queryFloat(c, "min_price", 0) // e.g. 0.1 for ≥10¢
 	beforeTS := queryInt64(c, "before", 0)     // cursor: timestamp in seconds
 
 	var trades []store.TradeRecord
 	var err error
-	if minUSD > 0 || maxPrice > 0 {
+	if minUSD > 0 || maxPrice > 0 || minPrice > 0 {
 		if minUSD <= 0 {
 			minUSD = 0.01 // effectively no USD filter
 		}
-		trades, err = s.tradeStore.RecentLarge(ctx, minUSD, int64(limit), beforeTS, maxPrice)
+		trades, err = s.tradeStore.RecentLarge(ctx, minUSD, int64(limit), beforeTS, maxPrice, minPrice)
 	} else {
 		trades, err = s.tradeStore.Recent(ctx, int64(limit), beforeTS)
 	}
