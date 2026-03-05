@@ -980,7 +980,7 @@ function _renderTradeItem(t, showSmActions) {
       })() : ''}</div>
       <div class="trade-time" data-ts="${ts}">${timeAgo}${showSmActions && t.proxy_wallet ? `<span class="sm-actions">
         <button class="sm-act" onclick="smRename('${esc(t.proxy_wallet)}')" title="修改昵称">✏</button>
-        <button class="sm-act down" onclick="smDown('${esc(t.proxy_wallet)}')" title="降级为候选">⬇</button>
+        <button class="sm-act down" onclick="smDown('${esc(t.proxy_wallet)}')" title="降级为拒绝">⬇</button>
         <button class="sm-act del" onclick="smDel('${esc(t.proxy_wallet)}')" title="删除聪明钱">✖</button>
       </span>` : ''}</div>
     </div>
@@ -1316,11 +1316,11 @@ function smRename(addr) {
 function smDown(addr) {
   var token = localStorage.getItem('polyscan_admin_token');
   if (!token) { token = prompt('请输入管理员 Token'); if (!token) return; localStorage.setItem('polyscan_admin_token', token); }
-  if (!confirm('确认将 ' + addr.slice(0,6) + '…' + addr.slice(-4) + ' 降级为候选?')) return;
+  if (!confirm('确认将 ' + addr.slice(0,6) + '…' + addr.slice(-4) + ' 降级为拒绝?')) return;
   fetch('/api/smart-money/' + addr + '/status', {
     method: 'PUT',
     headers: { 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ status: 'candidate' })
+    body: JSON.stringify({ status: 'rejected' })
   }).then(function(r){ return r.json().then(function(d){ return {ok:r.ok, data:d}; }); })
   .then(function(res) {
     if (!res.ok) { wmToast(res.data.error || '降级失败', false); return; }

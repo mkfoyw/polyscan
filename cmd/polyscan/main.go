@@ -430,8 +430,18 @@ func main() {
 
 		// Wire SSE events: smart money trades
 		if smPoller != nil {
+			// Pushover notifier for smart money trades
+			var pushoverNotifier *notify.Pushover
+			if cfg.Pushover.AppKey != "" && cfg.Pushover.UserKey != "" {
+				pushoverNotifier = notify.NewPushover(cfg.Pushover.AppKey, cfg.Pushover.UserKey, logger)
+				logger.Info("pushover notifications enabled for smart money trades")
+			}
+
 			smPoller.OnTradeStored = func(rec store.SmartMoneyTrade) {
 				apiServer.PublishSmartMoneyTrade(rec)
+				if pushoverNotifier != nil {
+					go pushoverNotifier.SendSmartMoneyTrade(rec)
+				}
 			}
 		}
 

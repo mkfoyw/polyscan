@@ -46,6 +46,9 @@ type Config struct {
 
 	// Smart money tracking
 	SmartMoney SmartMoneyConfig `yaml:"smart_money"`
+
+	// Pushover notifications
+	Pushover PushoverConfig `yaml:"pushover"`
 }
 
 // RetentionConfig holds per-collection retention settings (in days).
@@ -98,6 +101,12 @@ type SmartMoneyConfig struct {
 	PollInterval       Duration `yaml:"poll_interval"`        // poll interval for confirmed addresses
 	MinDisplayAmount   float64 `yaml:"min_display_amount"`    // min USD to save/display trades
 	Cooldown           Duration `yaml:"cooldown"`             // cooldown between alerts for same address
+}
+
+// PushoverConfig holds Pushover notification settings.
+type PushoverConfig struct {
+	AppKey  string `yaml:"app_key"`
+	UserKey string `yaml:"user_key"`
 }
 
 // Duration is a time.Duration that can be unmarshaled from a YAML string like "5m".
