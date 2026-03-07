@@ -921,7 +921,28 @@ function renderWhaleTrades(trades) {
     list.innerHTML = '<div class="empty-state">暂无巨鲸交易数据<br>当标记的鲸鱼钱包有交易时会显示在这里</div>';
     return;
   }
-  list.innerHTML = trades.map(renderTradeItem).join('');
+  list.innerHTML = mergeTrades(trades).map(renderTradeItem).join('');
+}
+
+function mergeTrades(items) {
+  if (!items.length) return items;
+  const merged = [];
+  let cur = null, curKey = '';
+  for (const t of items) {
+    const k = (t.proxy_wallet||'') + '|' + (t.title||'') + '|' + (t.outcome||'') + '|' + (t.side||'');
+    if (cur && curKey === k) {
+      cur.usd_value = (cur.usd_value||0) + (t.usd_value||0);
+      cur._count++;
+      if (t.price != null) { cur._minP = Math.min(cur._minP, t.price); cur._maxP = Math.max(cur._maxP, t.price); }
+      if (t.timestamp && t.timestamp < cur.timestamp) cur._oldestTs = t.timestamp;
+    } else {
+      if (cur) merged.push(cur);
+      cur = Object.assign({}, t, { _count: 1, _minP: t.price != null ? t.price : 1, _maxP: t.price != null ? t.price : 0, _oldestTs: t.timestamp });
+      curKey = k;
+    }
+  }
+  if (cur) merged.push(cur);
+  return merged;
 }
 
 function renderSmartMoneyTrades(trades) {
@@ -930,7 +951,7 @@ function renderSmartMoneyTrades(trades) {
     list.innerHTML = '<div class="empty-state">暂无聪明钱交易数据<br>当确认的聪明钱钱包有交易时会显示在这里</div>';
     return;
   }
-  list.innerHTML = trades.map(renderSmTradeItem).join('');
+  list.innerHTML = mergeTrades(trades).map(renderSmTradeItem).join('');
 }
 
 function tradeKey(t) {
@@ -952,7 +973,16 @@ function _renderTradeItem(t, showSmActions) {
   const sideCls = side === 'BUY' ? 'buy' : 'sell';
   const outcomeCls = (t.outcome || '').toLowerCase() === 'yes' ? 'yes' : 'no';
   const usd = formatUSD(t.usd_value);
-  const priceCents = t.price != null ? (t.price * 100).toFixed(1).replace(/\.0$/, '') + '¢' : '';
+  const count = (t._count || 1);
+  const countTag = count > 1 ? `<span style="color:#6e7681;font-size:11px;margin-left:2px">×${count}</span>` : '';
+  var priceCents = '';
+  if (t.price != null) {
+    if (count > 1 && t._minP !== t._maxP) {
+      priceCents = (t._minP * 100).toFixed(1).replace(/\.0$/, '') + '-' + (t._maxP * 100).toFixed(1).replace(/\.0$/, '') + '¢';
+    } else {
+      priceCents = (t.price * 100).toFixed(1).replace(/\.0$/, '') + '¢';
+    }
+  }
   const timeAgo = relativeTime(t.timestamp);
   const profileUrl = t.proxy_wallet ? `https://polymarket.com/profile/${t.proxy_wallet}` : '';
   const userTag = profileUrl
@@ -966,7 +996,7 @@ function _renderTradeItem(t, showSmActions) {
       <div class="trade-header">
         ${userTag}
         <span class="trade-badge ${sideCls}">${sideLabel}</span>
-        <span class="trade-amount">${usd}</span>
+        <span class="trade-amount">${usd}</span>${countTag}
         ${priceCents ? `<span class="trade-price">@${priceCents}</span>` : ''}
         <span class="trade-outcome ${outcomeCls}">${esc(t.outcome || '')}</span>
       </div>
@@ -1059,14 +1089,14 @@ function appendWhaleTrades(items) {
   const list = document.getElementById('whale-trade-list');
   const empty = list.querySelector('.empty-state');
   if (empty) empty.remove();
-  list.insertAdjacentHTML('beforeend', items.map(renderTradeItem).join(''));
+  list.insertAdjacentHTML('beforeend', mergeTrades(items).map(renderTradeItem).join(''));
 }
 
 function appendSmartMoneyTrades(items) {
   const list = document.getElementById('sm-trade-list');
   const empty = list.querySelector('.empty-state');
   if (empty) empty.remove();
-  list.insertAdjacentHTML('beforeend', items.map(renderSmTradeItem).join(''));
+  list.insertAdjacentHTML('beforeend', mergeTrades(items).map(renderSmTradeItem).join(''));
 }
 
 function prependSmartMoneyTrade(item) {
@@ -1311,6 +1341,7 @@ function smRename(addr) {
   .then(function(res) {
     if (!res.ok) { wmToast(res.data.error || '修改失败', false); return; }
     wmToast('昵称已更新: ' + (alias || '(已清除)'), true);
+    resetPaging('smTrades'); document.getElementById('sm-trade-list').innerHTML = ''; fetchSmartMoneyTrades();
   }).catch(function(e){ wmToast('请求失败: ' + e.message, false); });
 }
 function smDown(addr) {
@@ -1325,6 +1356,7 @@ function smDown(addr) {
   .then(function(res) {
     if (!res.ok) { wmToast(res.data.error || '降级失败', false); return; }
     wmToast('已降级: ' + addr.slice(0,6) + '…', true);
+    resetPaging('smTrades'); document.getElementById('sm-trade-list').innerHTML = ''; fetchSmartMoneyTrades();
   }).catch(function(e){ wmToast('请求失败: ' + e.message, false); });
 }
 function smDel(addr) {
@@ -1338,11 +1370,7 @@ function smDel(addr) {
   .then(function(res) {
     if (!res.ok) { wmToast(res.data.error || '删除失败', false); return; }
     wmToast('已删除: ' + addr.slice(0,6) + '…', true);
-    // Remove items with this wallet from the SM list
-    document.querySelectorAll('#sm-trade-list .item').forEach(function(el) {
-      var link = el.querySelector('a.trade-user');
-      if (link && link.href && link.href.includes(addr)) el.remove();
-    });
+    resetPaging('smTrades'); document.getElementById('sm-trade-list').innerHTML = ''; fetchSmartMoneyTrades();
   }).catch(function(e){ wmToast('请求失败: ' + e.message, false); });
 }
 
@@ -1390,7 +1418,15 @@ setInterval(fetchPriceMoves, 5000);
 setInterval(function() {
   document.querySelectorAll('.trade-time[data-ts]').forEach(el => {
     const ts = parseInt(el.dataset.ts, 10);
-    if (ts) el.textContent = relativeTime(ts);
+    if (!ts) return;
+    const newText = relativeTime(ts);
+    // Only update the first text node to preserve action buttons inside
+    const firstText = el.childNodes[0];
+    if (firstText && firstText.nodeType === 3) {
+      firstText.textContent = newText;
+    } else {
+      el.insertBefore(document.createTextNode(newText), el.firstChild);
+    }
   });
   document.querySelectorAll('.item-meta[data-iso]').forEach(el => {
     const iso = el.dataset.iso;

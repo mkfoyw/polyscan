@@ -59,6 +59,7 @@ func (p *Pushover) SendSmartMoneyTrade(t store.SmartMoneyTrade) {
 	}
 
 	msg := pushover.NewMessageWithTitle(body, title)
+	msg.Sound = "cashregister"
 	if url != "" {
 		msg.URL = url
 		msg.URLTitle = "查看市场"
