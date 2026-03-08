@@ -31,3 +31,7 @@ func (s *SettlementService) Count(ctx context.Context) (int64, error) {
 func (s *SettlementService) DeleteOlderThan(ctx context.Context, cutoff time.Time) (int64, error) {
 	return s.repo.DeleteOlderThan(ctx, cutoff)
 }
+
+func (s *SettlementService) SettledConditionIDs(ctx context.Context, ids []string) (map[string]bool, error) {
+	return s.repo.SettledConditionIDs(ctx, ids)
+}

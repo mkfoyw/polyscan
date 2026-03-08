@@ -89,3 +89,33 @@ func (s *SettlementRepo) DeleteOlderThan(ctx context.Context, cutoff time.Time) 
 	}
 	return res.RowsAffected()
 }
+
+func (s *SettlementRepo) SettledConditionIDs(ctx context.Context, ids []string) (map[string]bool, error) {
+	if len(ids) == 0 {
+		return nil, nil
+	}
+	q := `SELECT condition_id FROM settlements WHERE condition_id IN (`
+	args := make([]any, len(ids))
+	for i, id := range ids {
+		if i > 0 {
+			q += ","
+		}
+		q += "?"
+		args[i] = id
+	}
+	q += `)`
+	rows, err := s.rdb.QueryContext(ctx, q, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := make(map[string]bool)
+	for rows.Next() {
+		var cid string
+		if err := rows.Scan(&cid); err != nil {
+			return nil, err
+		}
+		out[cid] = true
+	}
+	return out, rows.Err()
+}

@@ -123,6 +123,7 @@ a{color:var(--blue);text-decoration:none}a:hover{text-decoration:underline}
     <button class="btn-topbar active" id="btn-24h" onclick="loadAnalysis(24)">24h</button>
     <button class="btn-topbar" id="btn-48h" onclick="loadAnalysis(48)">48h</button>
     <button class="btn-topbar" id="btn-72h" onclick="loadAnalysis(72)">72h</button>
+    <button class="btn-topbar active" id="btn-hide-settled" onclick="toggleSettled()">隐藏已结束</button>
     <a href="/smartmoney" class="back">← 聪明钱管理</a>
     <a href="/" class="back">← Dashboard</a>
   </div>
@@ -153,6 +154,7 @@ a{color:var(--blue);text-decoration:none}a:hover{text-decoration:underline}
 const API = '';
 let currentHours = 24;
 let analysisData = null;
+let hideSettled = true;
 
 // --- Helpers ---
 function $(id) { return document.getElementById(id); }
@@ -196,6 +198,12 @@ function setActiveRange(h) {
   $('btn-' + h + 'h').classList.add('active');
 }
 
+function toggleSettled() {
+  hideSettled = !hideSettled;
+  $('btn-hide-settled').classList.toggle('active', hideSettled);
+  loadAnalysis();
+}
+
 // --- Load analysis data ---
 async function loadAnalysis(hours) {
   if (hours) setActiveRange(hours);
@@ -207,7 +215,7 @@ async function loadAnalysis(hours) {
   });
 
   try {
-    const res = await fetch(API + '/api/smart-money-analysis?hours=' + h);
+    const res = await fetch(API + '/api/smart-money-analysis?hours=' + h + (hideSettled ? '&hide_settled=1' : ''));
     if (!res.ok) throw new Error('HTTP ' + res.status);
     analysisData = await res.json();
     renderSummary(analysisData.summary);
@@ -263,6 +271,7 @@ function renderMarkets(markets) {
     html += '<div class="market-stat">卖出 <span class="val sell">' + fmtUSD(m.sell_usd) + '</span> <span style="color:var(--text3)">(' + m.sell_count + '笔)</span></div>';
     html += '<div class="market-stat">净额 <span class="val ' + netClass + '">' + netSign + fmtUSD(Math.abs(m.net_usd)) + '</span></div>';
     if (m.avg_price > 0) html += '<div class="market-stat">均价 <span class="val">' + fmtPrice(m.avg_price) + '</span></div>';
+    if (m.current_price > 0) html += '<div class="market-stat">现价 <span class="val">' + fmtPrice(m.current_price) + '</span></div>';
     html += '</div>';
     html += '<div class="market-bar"><div class="buy-bar" style="width:' + buyPct + '%"></div><div class="sell-bar" style="width:' + sellPct + '%"></div></div>';
     if (m.wallets && m.wallets.length > 0) {

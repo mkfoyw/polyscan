@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"encoding/json"
 	"io"
 	"log/slog"
 	"net/http"
@@ -774,6 +775,62 @@ func (s *Server) handleSmartMoneyTrades(c *gin.Context) {
 	c.JSON(http.StatusOK, trades)
 }
 
+// fetchMidpoints calls the Polymarket CLOB API to get current midpoint prices
+// for the given token IDs. Returns a map of tokenID -> price.
+// Uses POST /midpoints to avoid URL length limits with long token IDs.
+func fetchMidpoints(ctx context.Context, tokenIDs []string) map[string]float64 {
+	if len(tokenIDs) == 0 {
+		return nil
+	}
+	client := &http.Client{Timeout: 10 * time.Second}
+	result := make(map[string]float64, len(tokenIDs))
+
+	// Batch in groups of 200 to stay within the 500 limit
+	const batchSize = 200
+	for i := 0; i < len(tokenIDs); i += batchSize {
+		end := i + batchSize
+		if end > len(tokenIDs) {
+			end = len(tokenIDs)
+		}
+		batch := tokenIDs[i:end]
+
+		// Build request body: [{"token_id":"..."},{"token_id":"..."}]
+		type bookReq struct {
+			TokenID string `json:"token_id"`
+		}
+		items := make([]bookReq, len(batch))
+		for j, id := range batch {
+			items[j] = bookReq{TokenID: id}
+		}
+		body, err := json.Marshal(items)
+		if err != nil {
+			continue
+		}
+		req, err := http.NewRequestWithContext(ctx, http.MethodPost,
+			"https://clob.polymarket.com/midpoints", strings.NewReader(string(body)))
+		if err != nil {
+			continue
+		}
+		req.Header.Set("Content-Type", "application/json")
+		resp, err := client.Do(req)
+		if err != nil {
+			continue
+		}
+		var raw map[string]string
+		err = json.NewDecoder(resp.Body).Decode(&raw)
+		resp.Body.Close()
+		if err != nil {
+			continue
+		}
+		for k, v := range raw {
+			if p, err := strconv.ParseFloat(v, 64); err == nil {
+				result[k] = p
+			}
+		}
+	}
+	return result
+}
+
 // handleWhaleAnalysis aggregates whale trades from the last N hours (default 48)
 // and returns per-market and per-wallet summaries.
 func (s *Server) handleWhaleAnalysis(c *gin.Context) {
@@ -835,6 +892,18 @@ func (s *Server) handleWhaleAnalysis(c *gin.Context) {
 		}
 	}
 
+	// Optionally filter out ended markets (price == 0 or > 0.98 means resolved)
+	hideSettled := c.Query("hide_settled") == "1"
+	if hideSettled && len(trades) > 0 {
+		filtered := trades[:0]
+		for _, t := range trades {
+			if t.Price > 0 && t.Price <= 0.98 {
+				filtered = append(filtered, t)
+			}
+		}
+		trades = filtered
+	}
+
 	// --- Aggregate per market (condition_id + outcome) ---
 	type marketKey struct {
 		ConditionID string
@@ -851,10 +920,12 @@ func (s *Server) handleWhaleAnalysis(c *gin.Context) {
 		BuyUSD      float64  `json:"buy_usd"`
 		SellUSD     float64  `json:"sell_usd"`
 		NetUSD      float64  `json:"net_usd"`
-		AvgPrice    float64  `json:"avg_price"`
-		TotalSize   float64  `json:"total_size"`
-		Wallets     []string `json:"wallets"`
-		walletSet   map[string]struct{}
+		AvgPrice     float64  `json:"avg_price"`
+		CurrentPrice float64  `json:"current_price"`
+		TotalSize    float64  `json:"total_size"`
+		Wallets      []string `json:"wallets"`
+		walletSet    map[string]struct{}
+		assetID      string
 	}
 	mktMap := make(map[marketKey]*marketAgg)
 
@@ -885,6 +956,7 @@ func (s *Server) handleWhaleAnalysis(c *gin.Context) {
 				EventSlug:   t.EventSlug,
 				ConditionID: t.ConditionID,
 				Outcome:     t.Outcome,
+				assetID:     t.Asset,
 				walletSet:   make(map[string]struct{}),
 			}
 			mktMap[mk] = ma
@@ -947,6 +1019,23 @@ func (s *Server) handleWhaleAnalysis(c *gin.Context) {
 			ma.Wallets = append(ma.Wallets, w)
 		}
 		markets = append(markets, *ma)
+	}
+
+	// Fetch current midpoint prices from Polymarket CLOB API
+	{
+		ids := make([]string, 0, len(markets))
+		for _, m := range markets {
+			if m.assetID != "" {
+				ids = append(ids, m.assetID)
+			}
+		}
+		if prices := fetchMidpoints(ctx, ids); len(prices) > 0 {
+			for i := range markets {
+				if p, ok := prices[markets[i].assetID]; ok {
+					markets[i].CurrentPrice = p
+				}
+			}
+		}
 	}
 
 	// Sort markets by abs(net USD) descending
@@ -1064,6 +1153,18 @@ func (s *Server) handleSmartMoneyAnalysis(c *gin.Context) {
 		}
 	}
 
+	// Optionally filter out ended markets (price == 0 or > 0.98 means resolved)
+	hideSettled := c.Query("hide_settled") == "1"
+	if hideSettled && len(trades) > 0 {
+		filtered := trades[:0]
+		for _, t := range trades {
+			if t.Price > 0 && t.Price <= 0.98 {
+				filtered = append(filtered, t)
+			}
+		}
+		trades = filtered
+	}
+
 	// --- Aggregate per market (condition_id + outcome) ---
 	type marketKey struct {
 		ConditionID string
@@ -1080,10 +1181,12 @@ func (s *Server) handleSmartMoneyAnalysis(c *gin.Context) {
 		BuyUSD      float64  `json:"buy_usd"`
 		SellUSD     float64  `json:"sell_usd"`
 		NetUSD      float64  `json:"net_usd"`
-		AvgPrice    float64  `json:"avg_price"`
-		TotalSize   float64  `json:"total_size"`
-		Wallets     []string `json:"wallets"`
-		walletSet   map[string]struct{}
+		AvgPrice     float64  `json:"avg_price"`
+		CurrentPrice float64  `json:"current_price"`
+		TotalSize    float64  `json:"total_size"`
+		Wallets      []string `json:"wallets"`
+		walletSet    map[string]struct{}
+		assetID      string
 	}
 	mktMap := make(map[marketKey]*marketAgg)
 
@@ -1115,6 +1218,7 @@ func (s *Server) handleSmartMoneyAnalysis(c *gin.Context) {
 				EventSlug:   t.EventSlug,
 				ConditionID: t.ConditionID,
 				Outcome:     t.Outcome,
+				assetID:     t.Asset,
 				walletSet:   make(map[string]struct{}),
 			}
 			mktMap[mk] = ma
@@ -1178,6 +1282,23 @@ func (s *Server) handleSmartMoneyAnalysis(c *gin.Context) {
 			ma.Wallets = append(ma.Wallets, w)
 		}
 		markets = append(markets, *ma)
+	}
+
+	// Fetch current midpoint prices from Polymarket CLOB API
+	{
+		ids := make([]string, 0, len(markets))
+		for _, m := range markets {
+			if m.assetID != "" {
+				ids = append(ids, m.assetID)
+			}
+		}
+		if prices := fetchMidpoints(ctx, ids); len(prices) > 0 {
+			for i := range markets {
+				if p, ok := prices[markets[i].assetID]; ok {
+					markets[i].CurrentPrice = p
+				}
+			}
+		}
 	}
 
 	// Sort markets by net USD descending (largest net buy first)

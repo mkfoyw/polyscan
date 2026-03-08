@@ -92,6 +92,7 @@ a{color:var(--blue);text-decoration:none}a:hover{text-decoration:underline}
     <button class="btn-topbar active" id="btn-24h" onclick="loadAnalysis(24)">24h</button>
     <button class="btn-topbar" id="btn-48h" onclick="loadAnalysis(48)">48h</button>
     <button class="btn-topbar" id="btn-72h" onclick="loadAnalysis(72)">72h</button>
+    <button class="btn-topbar active" id="btn-hide-settled" onclick="toggleSettled()">隐藏已结束</button>
     <a href="/whales" class="back">← 巨鲸管理</a>
     <a href="/" class="back">← Dashboard</a>
   </div>
@@ -121,6 +122,7 @@ a{color:var(--blue);text-decoration:none}a:hover{text-decoration:underline}
 <script>
 const API = '';
 let currentHours = 24;
+let hideSettled = true;
 
 function $(id){return document.getElementById(id)}
 function esc(s){if(!s)return '';const d=document.createElement('div');d.textContent=s;return d.innerHTML}
@@ -140,12 +142,14 @@ document.querySelectorAll('.tab-btn').forEach(btn=>{
 
 function setActiveRange(h){currentHours=h;document.querySelectorAll('.topbar .btn-topbar').forEach(b=>b.classList.remove('active'));$('btn-'+h+'h').classList.add('active')}
 
+function toggleSettled(){hideSettled=!hideSettled;$('btn-hide-settled').classList.toggle('active',hideSettled);loadAnalysis()}
+
 async function loadAnalysis(hours){
   if(hours)setActiveRange(hours);
   const h=currentHours;
   ['tab-markets','tab-wallets','tab-trades'].forEach(id=>{$(id).innerHTML='<div class="empty-state"><div class="empty-icon">⏳</div><div class="empty-title">加载中...</div></div>'});
   try{
-    const res=await fetch(API+'/api/whale-analysis?hours='+h);
+    const res=await fetch(API+'/api/whale-analysis?hours='+h+(hideSettled?'&hide_settled=1':''));
     if(!res.ok)throw new Error('HTTP '+res.status);
     const data=await res.json();
     renderSummary(data.summary);renderMarkets(data.markets);renderWallets(data.wallets);renderTrades(data.trades);
@@ -179,6 +183,7 @@ function renderMarkets(markets){
     html+='<div class="market-stat">卖出 <span class="val sell">'+fmtUSD(m.sell_usd)+'</span> <span style="color:var(--text3)">('+m.sell_count+'笔)</span></div>';
     html+='<div class="market-stat">净额 <span class="val '+netClass+'">'+netSign+fmtUSD(Math.abs(m.net_usd))+'</span></div>';
     if(m.avg_price>0)html+='<div class="market-stat">均价 <span class="val">'+fmtPrice(m.avg_price)+'</span></div>';
+    if(m.current_price>0)html+='<div class="market-stat">现价 <span class="val">'+fmtPrice(m.current_price)+'</span></div>';
     html+='</div>';
     html+='<div class="market-bar"><div class="buy-bar" style="width:'+buyPct+'%"></div><div class="sell-bar" style="width:'+sellPct+'%"></div></div>';
     if(m.wallets&&m.wallets.length>0){html+='<div class="market-wallets">';for(const w of m.wallets)html+='<span class="wallet-pill">'+esc(w)+'</span>';html+='</div>'}

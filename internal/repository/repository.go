@@ -219,6 +219,7 @@ type ProfileRepository interface {
 type SettlementRepository interface {
 	Upsert(ctx context.Context, rec *SettlementRecord) error
 	Recent(ctx context.Context, limit int64, before time.Time) ([]SettlementRecord, error)
+	SettledConditionIDs(ctx context.Context, ids []string) (map[string]bool, error)
 	Count(ctx context.Context) (int64, error)
 	DeleteOlderThan(ctx context.Context, cutoff time.Time) (int64, error)
 }
