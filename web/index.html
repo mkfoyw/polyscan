@@ -403,6 +403,14 @@ body {
       <button class="filter-btn" data-maxprice="0.70">&le;70¢</button>
       <button class="filter-btn" data-maxprice="0.80">&le;80¢</button>
     </div>
+    <div class="filters" id="whale-amount-filters">
+      <button class="filter-btn active" data-minamount="0">全部金额</button>
+      <button class="filter-btn" data-minamount="3000">&ge;$3k</button>
+      <button class="filter-btn" data-minamount="5000">&ge;$5k</button>
+      <button class="filter-btn" data-minamount="10000">&ge;$10k</button>
+      <button class="filter-btn" data-minamount="50000">&ge;$50k</button>
+      <button class="filter-btn" data-minamount="100000">&ge;$100k</button>
+    </div>
     <div class="list" id="whale-trade-list"></div>
   </div>
 
@@ -443,6 +451,14 @@ body {
       <button class="filter-btn" data-maxprice="0.60">&le;60¢</button>
       <button class="filter-btn" data-maxprice="0.70">&le;70¢</button>
       <button class="filter-btn" data-maxprice="0.80">&le;80¢</button>
+    </div>
+    <div class="filters" id="sm-amount-filters">
+      <button class="filter-btn active" data-minamount="0">全部金额</button>
+      <button class="filter-btn" data-minamount="3000">&ge;$3k</button>
+      <button class="filter-btn" data-minamount="5000">&ge;$5k</button>
+      <button class="filter-btn" data-minamount="10000">&ge;$10k</button>
+      <button class="filter-btn" data-minamount="50000">&ge;$50k</button>
+      <button class="filter-btn" data-minamount="100000">&ge;$100k</button>
     </div>
     <div class="list" id="sm-trade-list"></div>
   </div>
@@ -578,6 +594,8 @@ let tradeMaxPrice = 0.70;
 let tradeMinPrice = 0;
 let whaleMaxPrice = 0;
 let smMaxPrice = 0;
+let whaleMinAmount = 0;
+let smMinAmount = 0;
 let marketCategory = 'all';
 
 // Tracked whale addresses (refreshed on fetchWhaleTrades)
@@ -663,12 +681,34 @@ document.getElementById('whale-price-filters').addEventListener('click', e => {
   fetchWhaleTrades();
 });
 
+document.getElementById('whale-amount-filters').addEventListener('click', e => {
+  const btn = e.target.closest('.filter-btn');
+  if (!btn) return;
+  document.querySelectorAll('#whale-amount-filters .filter-btn').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  whaleMinAmount = parseFloat(btn.dataset.minamount);
+  resetPaging('whaleTrades');
+  document.getElementById('whale-trade-list').innerHTML = '';
+  fetchWhaleTrades();
+});
+
 document.getElementById('sm-price-filters').addEventListener('click', e => {
   const btn = e.target.closest('.filter-btn');
   if (!btn) return;
   document.querySelectorAll('#sm-price-filters .filter-btn').forEach(b => b.classList.remove('active'));
   btn.classList.add('active');
   smMaxPrice = parseFloat(btn.dataset.maxprice);
+  resetPaging('smTrades');
+  document.getElementById('sm-trade-list').innerHTML = '';
+  fetchSmartMoneyTrades();
+});
+
+document.getElementById('sm-amount-filters').addEventListener('click', e => {
+  const btn = e.target.closest('.filter-btn');
+  if (!btn) return;
+  document.querySelectorAll('#sm-amount-filters .filter-btn').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  smMinAmount = parseFloat(btn.dataset.minamount);
   resetPaging('smTrades');
   document.getElementById('sm-trade-list').innerHTML = '';
   fetchSmartMoneyTrades();
@@ -755,7 +795,8 @@ async function fetchWhaleTrades(loadMore) {
   if (p.loading) return;
   p.loading = true;
   try {
-    let url = `${API}/api/whale-trades?limit=${PAGE_SIZE}&min_usd=1000&_t=${Date.now()}${whaleMaxPrice > 0 ? '&max_price=' + whaleMaxPrice : ''}`;
+    const minUsd = whaleMinAmount > 0 ? whaleMinAmount : 1000;
+    let url = `${API}/api/whale-trades?limit=${PAGE_SIZE}&min_usd=${minUsd}&_t=${Date.now()}${whaleMaxPrice > 0 ? '&max_price=' + whaleMaxPrice : ''}`;
     if (loadMore && p.cursor) url += `&before=${p.cursor}`;
     const resp = await fetch(url);
     const data = await resp.json();
@@ -785,7 +826,8 @@ async function fetchSmartMoneyTrades(loadMore) {
   if (p.loading) return;
   p.loading = true;
   try {
-    let url = `${API}/api/smart-money-trades?limit=${PAGE_SIZE}&min_usd=100&_t=${Date.now()}${smMaxPrice > 0 ? '&max_price=' + smMaxPrice : ''}`;
+    const minUsd = smMinAmount > 0 ? smMinAmount : 100;
+    let url = `${API}/api/smart-money-trades?limit=${PAGE_SIZE}&min_usd=${minUsd}&_t=${Date.now()}${smMaxPrice > 0 ? '&max_price=' + smMaxPrice : ''}`;
     if (loadMore && p.cursor) url += `&before=${p.cursor}`;
     const resp = await fetch(url);
     const data = await resp.json();
@@ -986,8 +1028,8 @@ function _renderTradeItem(t, showSmActions) {
   const timeAgo = relativeTime(t.timestamp);
   const profileUrl = t.proxy_wallet ? `https://polymarket.com/profile/${t.proxy_wallet}` : '';
   const userTag = profileUrl
-    ? `<a class="trade-user" href="${esc(profileUrl)}" target="_blank">${esc(name)}</a>`
-    : `<span class="trade-user no-link">${esc(name)}</span>`;
+    ? `<a class="trade-user" href="${esc(profileUrl)}" target="_blank" title="${esc(rawName)}">${esc(name)}</a>`
+    : `<span class="trade-user no-link" title="${esc(rawName)}">${esc(name)}</span>`;
   const key = esc(tradeKey(t));
   const ts = t.timestamp || 0;
   return `<div class="item" data-key="${key}" data-ts="${ts}">
@@ -1104,6 +1146,7 @@ function prependSmartMoneyTrade(item) {
   const empty = list.querySelector('.empty-state');
   if (empty) empty.remove();
   if (smMaxPrice > 0 && (item.price || 0) > smMaxPrice) return;
+  if (smMinAmount > 0 && (item.usd_value || 0) < smMinAmount) return;
   const key = tradeKey(item);
   const ts = item.timestamp || 0;
   const existing = list.querySelector(`[data-key="${CSS.escape(key)}"]`);
@@ -1125,6 +1168,9 @@ function prependTrade(item) {
   // Only push to whale list if this wallet is a tracked whale
   if (visibleCols.includes('whale-trades') && item.proxy_wallet &&
       whaleAddressSet.has((item.proxy_wallet || '').toLowerCase())) {
+    // Apply whale-specific filters
+    if (whaleMaxPrice > 0 && (item.price || 0) > whaleMaxPrice) return;
+    if (whaleMinAmount > 0 && (item.usd_value || 0) < whaleMinAmount) return;
     _prependTradeToList('whale-trade-list', item, false);
   }
 }

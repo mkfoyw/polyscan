@@ -862,8 +862,8 @@ func (s *Server) handleUpdateSmartMoneyAlias(c *gin.Context) {
 
 // PublishSmartMoneyTrade sends a new smart money trade to SSE clients.
 func (s *Server) PublishSmartMoneyTrade(t store.SmartMoneyTrade) {
-	// Enrich with display name if not already set
-	if t.ProfileName == "" && t.ProxyWallet != "" && s.smUserStore != nil {
+	// Always enrich with consistent display name format
+	if t.ProxyWallet != "" && s.smUserStore != nil {
 		if u, err := s.smUserStore.GetByAddress(context.Background(), t.ProxyWallet); err == nil && u != nil {
 			if dn := resolveDisplayName(u.Name, u.Pseudonym, u.Alias); dn != "" {
 				t.ProfileName = dn
