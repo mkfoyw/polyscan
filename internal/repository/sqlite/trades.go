@@ -1,44 +1,25 @@
-package store
+package sqlite
 
 import (
 	"context"
 	"database/sql"
 	"time"
+
+	"github.com/mkfoyw/polyscan/internal/repository"
 )
 
-// TradeRecord is a trade persisted to SQLite.
-type TradeRecord struct {
-	ProxyWallet     string    `json:"proxy_wallet"`
-	Pseudonym       string    `json:"pseudonym,omitempty"`
-	ProfileName     string    `json:"profile_name,omitempty"`
-	Side            string    `json:"side"`
-	Asset           string    `json:"asset"`
-	ConditionID     string    `json:"condition_id"`
-	Size            float64   `json:"size"`
-	Price           float64   `json:"price"`
-	USDValue        float64   `json:"usd_value"`
-	Timestamp       int64     `json:"timestamp"`
-	Title           string    `json:"title"`
-	Slug            string    `json:"slug"`
-	EventSlug       string    `json:"event_slug,omitempty"`
-	Outcome         string    `json:"outcome"`
-	TransactionHash string    `json:"transaction_hash,omitempty"`
-	Source          string    `json:"source"`
-	CreatedAt       time.Time `json:"created_at"`
-}
-
-// TradeStore wraps the trades table.
-type TradeStore struct {
-	rdb *sql.DB // reader pool
-	wdb *sql.DB // writer pool
+// TradeRepo implements repository.TradeRepository using SQLite.
+type TradeRepo struct {
+	rdb *sql.DB
+	wdb *sql.DB
 }
 
 const tradeCols = `proxy_wallet, pseudonym, profile_name, side, asset, condition_id,
 	size, price, usd_value, timestamp, title, slug, event_slug, outcome,
 	transaction_hash, source, created_at`
 
-func scanTrade(sc interface{ Scan(...any) error }) (TradeRecord, error) {
-	var r TradeRecord
+func scanTrade(sc interface{ Scan(...any) error }) (repository.TradeRecord, error) {
+	var r repository.TradeRecord
 	var createdUnix int64
 	err := sc.Scan(
 		&r.ProxyWallet, &r.Pseudonym, &r.ProfileName,
@@ -54,9 +35,9 @@ func scanTrade(sc interface{ Scan(...any) error }) (TradeRecord, error) {
 	return r, nil
 }
 
-func scanTrades(rows *sql.Rows) ([]TradeRecord, error) {
+func scanTrades(rows *sql.Rows) ([]repository.TradeRecord, error) {
 	defer rows.Close()
-	var out []TradeRecord
+	var out []repository.TradeRecord
 	for rows.Next() {
 		r, err := scanTrade(rows)
 		if err != nil {
@@ -67,8 +48,7 @@ func scanTrades(rows *sql.Rows) ([]TradeRecord, error) {
 	return out, rows.Err()
 }
 
-// Insert inserts a trade record. Duplicates (same transaction_hash) are silently ignored.
-func (s *TradeStore) Insert(ctx context.Context, rec *TradeRecord) error {
+func (s *TradeRepo) Insert(ctx context.Context, rec *repository.TradeRecord) error {
 	rec.CreatedAt = time.Now()
 	_, err := s.wdb.ExecContext(ctx, `
 		INSERT INTO trades (`+tradeCols+`)
@@ -85,8 +65,7 @@ func (s *TradeStore) Insert(ctx context.Context, rec *TradeRecord) error {
 	return err
 }
 
-// RecentByWallet returns the N most recent trades for a wallet.
-func (s *TradeStore) RecentByWallet(ctx context.Context, wallet string, limit int64) ([]TradeRecord, error) {
+func (s *TradeRepo) RecentByWallet(ctx context.Context, wallet string, limit int64) ([]repository.TradeRecord, error) {
 	rows, err := s.rdb.QueryContext(ctx, `
 		SELECT `+tradeCols+` FROM trades
 		WHERE proxy_wallet = ?
@@ -97,10 +76,7 @@ func (s *TradeStore) RecentByWallet(ctx context.Context, wallet string, limit in
 	return scanTrades(rows)
 }
 
-// RecentLarge returns trades above a USD threshold, most recent first.
-// If beforeTS > 0, only returns trades older than that timestamp (cursor pagination).
-// If maxPrice > 0, only returns trades with price <= maxPrice.
-func (s *TradeStore) RecentLarge(ctx context.Context, minUSD float64, limit int64, beforeTS int64, maxPrice float64, minPrice float64) ([]TradeRecord, error) {
+func (s *TradeRepo) RecentLarge(ctx context.Context, minUSD float64, limit int64, beforeTS int64, maxPrice float64, minPrice float64) ([]repository.TradeRecord, error) {
 	q := `SELECT ` + tradeCols + ` FROM trades WHERE usd_value >= ?`
 	args := []any{minUSD}
 	if beforeTS > 0 {
@@ -125,8 +101,7 @@ func (s *TradeStore) RecentLarge(ctx context.Context, minUSD float64, limit int6
 	return scanTrades(rows)
 }
 
-// ExistsByTxHash checks if a trade with this transaction hash already exists.
-func (s *TradeStore) ExistsByTxHash(ctx context.Context, txHash string) (bool, error) {
+func (s *TradeRepo) ExistsByTxHash(ctx context.Context, txHash string) (bool, error) {
 	if txHash == "" {
 		return false, nil
 	}
@@ -139,9 +114,7 @@ func (s *TradeStore) ExistsByTxHash(ctx context.Context, txHash string) (bool, e
 	return err == nil, err
 }
 
-// Recent returns the N most recent trades.
-// If beforeTS > 0, only returns trades older than that timestamp (cursor pagination).
-func (s *TradeStore) Recent(ctx context.Context, limit int64, beforeTS int64) ([]TradeRecord, error) {
+func (s *TradeRepo) Recent(ctx context.Context, limit int64, beforeTS int64) ([]repository.TradeRecord, error) {
 	q := `SELECT ` + tradeCols + ` FROM trades`
 	var args []any
 	if beforeTS > 0 {
@@ -157,15 +130,13 @@ func (s *TradeStore) Recent(ctx context.Context, limit int64, beforeTS int64) ([
 	return scanTrades(rows)
 }
 
-// Count returns the total number of trade records.
-func (s *TradeStore) Count(ctx context.Context) (int64, error) {
+func (s *TradeRepo) Count(ctx context.Context) (int64, error) {
 	var n int64
 	err := s.rdb.QueryRowContext(ctx, `SELECT COUNT(*) FROM trades`).Scan(&n)
 	return n, err
 }
 
-// DeleteOlderThan removes trade records with created_at before the given cutoff.
-func (s *TradeStore) DeleteOlderThan(ctx context.Context, cutoff time.Time) (int64, error) {
+func (s *TradeRepo) DeleteOlderThan(ctx context.Context, cutoff time.Time) (int64, error) {
 	res, err := s.wdb.ExecContext(ctx,
 		`DELETE FROM trades WHERE created_at < ?`, cutoff.Unix())
 	if err != nil {
@@ -174,8 +145,7 @@ func (s *TradeStore) DeleteOlderThan(ctx context.Context, cutoff time.Time) (int
 	return res.RowsAffected()
 }
 
-// EnrichByAssetTimestamp updates a WS trade record with wallet info from REST.
-func (s *TradeStore) EnrichByAssetTimestamp(ctx context.Context, asset string, timestamp int64, proxyWallet, pseudonym, profileName, txHash string) error {
+func (s *TradeRepo) EnrichByAssetTimestamp(ctx context.Context, asset string, timestamp int64, proxyWallet, pseudonym, profileName, txHash string) error {
 	q := `UPDATE trades SET proxy_wallet=?, pseudonym=?, transaction_hash=?`
 	args := []any{proxyWallet, pseudonym, txHash}
 	if profileName != "" {
@@ -188,16 +158,13 @@ func (s *TradeStore) EnrichByAssetTimestamp(ctx context.Context, asset string, t
 	return err
 }
 
-// UpsertRESTTrade either enriches an existing WS trade (same asset, size, timestamp ±10s)
-// with REST wallet info, or inserts a new REST record if no WS match found.
-func (s *TradeStore) UpsertRESTTrade(ctx context.Context, rec *TradeRecord) error {
+func (s *TradeRepo) UpsertRESTTrade(ctx context.Context, rec *repository.TradeRecord) error {
 	tx, err := s.wdb.BeginTx(ctx, nil)
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback()
 
-	// Look for a matching WS trade to enrich
 	var id int64
 	err = tx.QueryRowContext(ctx, `
 		SELECT id FROM trades
@@ -208,7 +175,6 @@ func (s *TradeStore) UpsertRESTTrade(ctx context.Context, rec *TradeRecord) erro
 	).Scan(&id)
 
 	if err == nil {
-		// Found matching WS trade — enrich it
 		_, err = tx.ExecContext(ctx, `
 			UPDATE trades
 			SET proxy_wallet=?, pseudonym=?, profile_name=?, transaction_hash=?,
@@ -227,7 +193,6 @@ func (s *TradeStore) UpsertRESTTrade(ctx context.Context, rec *TradeRecord) erro
 		return err
 	}
 
-	// No matching WS trade — insert as a new REST record
 	rec.CreatedAt = time.Now()
 	_, err = tx.ExecContext(ctx, `
 		INSERT INTO trades (`+tradeCols+`)

@@ -1,30 +1,21 @@
-package store
+package sqlite
 
 import (
 	"context"
 	"database/sql"
 	"time"
+
+	"github.com/mkfoyw/polyscan/internal/repository"
 )
 
-// SettlementRecord is a resolved market persisted to SQLite.
-type SettlementRecord struct {
-	ConditionID string    `json:"condition_id"`
-	Question    string    `json:"question"`
-	Slug        string    `json:"slug"`
-	EventSlug   string    `json:"event_slug"`
-	Outcome     string    `json:"outcome"`
-	ImageURL    string    `json:"image_url"`
-	ResolvedAt  time.Time `json:"resolved_at"`
+// SettlementRepo implements repository.SettlementRepository using SQLite.
+type SettlementRepo struct {
+	rdb *sql.DB
+	wdb *sql.DB
 }
 
-// SettlementStore wraps the settlements table.
-type SettlementStore struct {
-	rdb *sql.DB // reader pool
-	wdb *sql.DB // writer pool
-}
-
-func scanSettlement(sc interface{ Scan(...any) error }) (SettlementRecord, error) {
-	var r SettlementRecord
+func scanSettlement(sc interface{ Scan(...any) error }) (repository.SettlementRecord, error) {
+	var r repository.SettlementRecord
 	var ts int64
 	err := sc.Scan(&r.ConditionID, &r.Question, &r.Slug, &r.EventSlug,
 		&r.Outcome, &r.ImageURL, &ts)
@@ -35,9 +26,9 @@ func scanSettlement(sc interface{ Scan(...any) error }) (SettlementRecord, error
 	return r, nil
 }
 
-func scanSettlements(rows *sql.Rows) ([]SettlementRecord, error) {
+func scanSettlements(rows *sql.Rows) ([]repository.SettlementRecord, error) {
 	defer rows.Close()
-	var out []SettlementRecord
+	var out []repository.SettlementRecord
 	for rows.Next() {
 		r, err := scanSettlement(rows)
 		if err != nil {
@@ -48,9 +39,7 @@ func scanSettlements(rows *sql.Rows) ([]SettlementRecord, error) {
 	return out, rows.Err()
 }
 
-// Upsert inserts or updates a settlement record (keyed on condition_id).
-// resolved_at is only set on first insert, never updated.
-func (s *SettlementStore) Upsert(ctx context.Context, rec *SettlementRecord) error {
+func (s *SettlementRepo) Upsert(ctx context.Context, rec *repository.SettlementRecord) error {
 	if rec.ResolvedAt.IsZero() {
 		rec.ResolvedAt = time.Now()
 	}
@@ -69,9 +58,7 @@ func (s *SettlementStore) Upsert(ctx context.Context, rec *SettlementRecord) err
 	return err
 }
 
-// Recent returns the N most recently resolved markets.
-// If before is non-zero, only returns settlements resolved before that time.
-func (s *SettlementStore) Recent(ctx context.Context, limit int64, before time.Time) ([]SettlementRecord, error) {
+func (s *SettlementRepo) Recent(ctx context.Context, limit int64, before time.Time) ([]repository.SettlementRecord, error) {
 	q := `SELECT condition_id, question, slug, event_slug, outcome, image_url, resolved_at
 		  FROM settlements`
 	var args []any
@@ -88,15 +75,13 @@ func (s *SettlementStore) Recent(ctx context.Context, limit int64, before time.T
 	return scanSettlements(rows)
 }
 
-// Count returns the total number of settlement records.
-func (s *SettlementStore) Count(ctx context.Context) (int64, error) {
+func (s *SettlementRepo) Count(ctx context.Context) (int64, error) {
 	var n int64
 	err := s.rdb.QueryRowContext(ctx, `SELECT COUNT(*) FROM settlements`).Scan(&n)
 	return n, err
 }
 
-// DeleteOlderThan removes settlement records with resolved_at before the given cutoff.
-func (s *SettlementStore) DeleteOlderThan(ctx context.Context, cutoff time.Time) (int64, error) {
+func (s *SettlementRepo) DeleteOlderThan(ctx context.Context, cutoff time.Time) (int64, error) {
 	res, err := s.wdb.ExecContext(ctx,
 		`DELETE FROM settlements WHERE resolved_at < ?`, cutoff.Unix())
 	if err != nil {

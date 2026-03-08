@@ -9,15 +9,16 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/mkfoyw/polyscan/internal/store"
+	"github.com/mkfoyw/polyscan/internal/repository"
+	"github.com/mkfoyw/polyscan/internal/services"
 	"github.com/mkfoyw/polyscan/internal/types"
 )
 
 // SmartMoneyPoller periodically polls the Data API for recent trades
 // by confirmed smart money wallets.
 type SmartMoneyPoller struct {
-	userStore        *store.SmartMoneyUserStore
-	tradeStore       *store.SmartMoneyTradeStore
+	userSvc        *services.SmartMoneyUserService
+	tradeSvc       *services.SmartMoneyTradeService
 	interval         time.Duration
 	minDisplayAmount float64
 	client           *http.Client
@@ -28,21 +29,21 @@ type SmartMoneyPoller struct {
 	ProfileLookup func(ctx context.Context, proxyWallet string) string
 
 	// OnTradeStored is called when a new smart money trade is stored (for SSE push).
-	OnTradeStored func(rec store.SmartMoneyTrade)
+	OnTradeStored func(rec repository.SmartMoneyTrade)
 }
 
 // NewSmartMoneyPoller creates a new smart money poller.
 func NewSmartMoneyPoller(
-	userStore *store.SmartMoneyUserStore,
-	tradeStore *store.SmartMoneyTradeStore,
+	userSvc *services.SmartMoneyUserService,
+	tradeSvc *services.SmartMoneyTradeService,
 	interval time.Duration,
 	minDisplayAmount float64,
 	alerts chan<- types.Alert,
 	logger *slog.Logger,
 ) *SmartMoneyPoller {
 	return &SmartMoneyPoller{
-		userStore:        userStore,
-		tradeStore:       tradeStore,
+		userSvc:        userSvc,
+		tradeSvc:       tradeSvc,
 		interval:         interval,
 		minDisplayAmount: minDisplayAmount,
 		client:           &http.Client{Timeout: 15 * time.Second},
@@ -68,7 +69,7 @@ func (p *SmartMoneyPoller) Run(ctx context.Context) {
 }
 
 func (p *SmartMoneyPoller) pollAll(ctx context.Context) {
-	users, err := p.userStore.GetConfirmed(ctx)
+	users, err := p.userSvc.GetConfirmed(ctx)
 	if err != nil {
 		p.logger.Error("failed to get confirmed smart money users", "error", err)
 		return
@@ -111,16 +112,16 @@ func (p *SmartMoneyPoller) pollAll(ctx context.Context) {
 			}
 
 			newCount++
-			_ = p.userStore.IncrVolume(ctx, u.Address, act.USDCSize)
+			_ = p.userSvc.IncrVolume(ctx, u.Address, act.USDCSize)
 
 			// Update profile from activity data (once per cycle)
 			if !profileUpdated && (act.Name != "" || act.Pseudonym != "") {
-				_ = p.userStore.UpdateProfile(ctx, u.Address, act.Name, act.Pseudonym)
+				_ = p.userSvc.UpdateProfile(ctx, u.Address, act.Name, act.Pseudonym)
 				profileUpdated = true
 			}
 
 			// Persist trade
-			rec := &store.SmartMoneyTrade{
+			rec := &repository.SmartMoneyTrade{
 				ProxyWallet:     u.Address,
 				Side:            act.Side,
 				Asset:           act.Asset,
@@ -135,15 +136,16 @@ func (p *SmartMoneyPoller) pollAll(ctx context.Context) {
 				Outcome:         act.Outcome,
 				TransactionHash: act.TransactionHash,
 			}
-			if err := p.tradeStore.Insert(ctx, rec); err != nil {
+			merged, err := p.tradeSvc.UpsertMerge(ctx, rec)
+			if err != nil {
 				p.logger.Error("failed to persist smart money trade", "error", err)
 				continue
 			}
 
 			// Send SSE event
 			if p.OnTradeStored != nil {
-				rec.ProfileName = u.DisplayName()
-				p.OnTradeStored(*rec)
+				merged.ProfileName = u.DisplayName()
+				p.OnTradeStored(*merged)
 			}
 
 			// Send alert
@@ -153,7 +155,7 @@ func (p *SmartMoneyPoller) pollAll(ctx context.Context) {
 		// Try external profile lookup if no name yet
 		if !profileUpdated && u.Alias == "" && u.Name == "" && p.ProfileLookup != nil {
 			if name := p.ProfileLookup(ctx, u.Address); name != "" {
-				_ = p.userStore.UpdateProfile(ctx, u.Address, name, "")
+				_ = p.userSvc.UpdateProfile(ctx, u.Address, name, "")
 			}
 		}
 
@@ -165,7 +167,7 @@ func (p *SmartMoneyPoller) pollAll(ctx context.Context) {
 					maxTS = act.Timestamp
 				}
 			}
-			_ = p.userStore.UpdateLastPollTS(ctx, u.Address, maxTS)
+			_ = p.userSvc.UpdateLastPollTS(ctx, u.Address, maxTS)
 		}
 
 		if newCount > 0 {
@@ -211,7 +213,7 @@ func (p *SmartMoneyPoller) fetchActivity(ctx context.Context, address string) ([
 	return activities, nil
 }
 
-func (p *SmartMoneyPoller) sendAlert(ctx context.Context, u *store.SmartMoneyUser, act *types.Activity) {
+func (p *SmartMoneyPoller) sendAlert(ctx context.Context, u *repository.SmartMoneyUser, act *types.Activity) {
 	url := ""
 	if act.EventSlug != "" {
 		url = "https://polymarket.com/event/" + act.EventSlug

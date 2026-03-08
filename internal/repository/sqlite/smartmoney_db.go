@@ -1,4 +1,4 @@
-package store
+package sqlite
 
 import (
 	"context"
@@ -9,9 +9,8 @@ import (
 )
 
 // SmartMoneyDB wraps a separate SQLite database for smart money tracking.
-// It is independent from the main polyscan.db so they can be managed separately.
 type SmartMoneyDB struct {
-	db     *DB // reuses the same reader/writer split pattern
+	db     *DB
 	logger *slog.Logger
 }
 
@@ -82,6 +81,7 @@ CREATE TABLE IF NOT EXISTS smart_money_trades (
 );
 CREATE INDEX IF NOT EXISTS idx_sm_trades_timestamp    ON smart_money_trades(timestamp DESC);
 CREATE INDEX IF NOT EXISTS idx_sm_trades_wallet_ts    ON smart_money_trades(proxy_wallet, timestamp DESC);
+CREATE INDEX IF NOT EXISTS idx_sm_trades_merge_key    ON smart_money_trades(proxy_wallet, condition_id, side, outcome);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_sm_trades_txhash ON smart_money_trades(transaction_hash) WHERE transaction_hash != '';
 `
 	if _, err := s.db.writerDB.Exec(schema); err != nil {
@@ -96,12 +96,12 @@ func (s *SmartMoneyDB) Close() error {
 	return s.db.Close()
 }
 
-// Users returns a SmartMoneyUserStore backed by this database.
-func (s *SmartMoneyDB) Users() *SmartMoneyUserStore {
-	return &SmartMoneyUserStore{rdb: s.db.readerDB, wdb: s.db.writerDB}
+// Users returns a SmartMoneyUserRepo backed by this database.
+func (s *SmartMoneyDB) Users() *SmartMoneyUserRepo {
+	return &SmartMoneyUserRepo{rdb: s.db.readerDB, wdb: s.db.writerDB}
 }
 
-// Trades returns a SmartMoneyTradeStore backed by this database.
-func (s *SmartMoneyDB) Trades() *SmartMoneyTradeStore {
-	return &SmartMoneyTradeStore{rdb: s.db.readerDB, wdb: s.db.writerDB}
+// Trades returns a SmartMoneyTradeRepo backed by this database.
+func (s *SmartMoneyDB) Trades() *SmartMoneyTradeRepo {
+	return &SmartMoneyTradeRepo{rdb: s.db.readerDB, wdb: s.db.writerDB}
 }

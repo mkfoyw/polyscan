@@ -1,26 +1,21 @@
-package store
+package sqlite
 
 import (
 	"context"
 	"database/sql"
 	"time"
+
+	"github.com/mkfoyw/polyscan/internal/repository"
 )
 
-// AlertRecord is an alert persisted to SQLite.
-type AlertRecord struct {
-	Type      string    `json:"type"`
-	Message   string    `json:"message"`
-	CreatedAt time.Time `json:"created_at"`
+// AlertRepo implements repository.AlertRepository using SQLite.
+type AlertRepo struct {
+	rdb *sql.DB
+	wdb *sql.DB
 }
 
-// AlertStore wraps the alerts table.
-type AlertStore struct {
-	rdb *sql.DB // reader pool
-	wdb *sql.DB // writer pool
-}
-
-func scanAlert(sc interface{ Scan(...any) error }) (AlertRecord, error) {
-	var r AlertRecord
+func scanAlert(sc interface{ Scan(...any) error }) (repository.AlertRecord, error) {
+	var r repository.AlertRecord
 	var ts int64
 	err := sc.Scan(&r.Type, &r.Message, &ts)
 	if err != nil {
@@ -30,9 +25,9 @@ func scanAlert(sc interface{ Scan(...any) error }) (AlertRecord, error) {
 	return r, nil
 }
 
-func scanAlerts(rows *sql.Rows) ([]AlertRecord, error) {
+func scanAlerts(rows *sql.Rows) ([]repository.AlertRecord, error) {
 	defer rows.Close()
-	var out []AlertRecord
+	var out []repository.AlertRecord
 	for rows.Next() {
 		r, err := scanAlert(rows)
 		if err != nil {
@@ -43,8 +38,7 @@ func scanAlerts(rows *sql.Rows) ([]AlertRecord, error) {
 	return out, rows.Err()
 }
 
-// Insert saves an alert record.
-func (s *AlertStore) Insert(ctx context.Context, rec *AlertRecord) error {
+func (s *AlertRepo) Insert(ctx context.Context, rec *repository.AlertRecord) error {
 	rec.CreatedAt = time.Now()
 	_, err := s.wdb.ExecContext(ctx,
 		`INSERT INTO alerts (type, message, created_at) VALUES (?,?,?)`,
@@ -52,8 +46,7 @@ func (s *AlertStore) Insert(ctx context.Context, rec *AlertRecord) error {
 	return err
 }
 
-// Recent returns the N most recent alerts.
-func (s *AlertStore) Recent(ctx context.Context, limit int64) ([]AlertRecord, error) {
+func (s *AlertRepo) Recent(ctx context.Context, limit int64) ([]repository.AlertRecord, error) {
 	rows, err := s.rdb.QueryContext(ctx,
 		`SELECT type, message, created_at FROM alerts ORDER BY created_at DESC LIMIT ?`, limit)
 	if err != nil {
@@ -62,8 +55,7 @@ func (s *AlertStore) Recent(ctx context.Context, limit int64) ([]AlertRecord, er
 	return scanAlerts(rows)
 }
 
-// DeleteOlderThan removes alert records with created_at before the given cutoff.
-func (s *AlertStore) DeleteOlderThan(ctx context.Context, cutoff time.Time) (int64, error) {
+func (s *AlertRepo) DeleteOlderThan(ctx context.Context, cutoff time.Time) (int64, error) {
 	res, err := s.wdb.ExecContext(ctx,
 		`DELETE FROM alerts WHERE created_at < ?`, cutoff.Unix())
 	if err != nil {
@@ -72,8 +64,7 @@ func (s *AlertStore) DeleteOlderThan(ctx context.Context, cutoff time.Time) (int
 	return res.RowsAffected()
 }
 
-// RecentByType returns recent alerts of a given type.
-func (s *AlertStore) RecentByType(ctx context.Context, alertType string, limit int64) ([]AlertRecord, error) {
+func (s *AlertRepo) RecentByType(ctx context.Context, alertType string, limit int64) ([]repository.AlertRecord, error) {
 	rows, err := s.rdb.QueryContext(ctx,
 		`SELECT type, message, created_at FROM alerts
 		 WHERE type = ? ORDER BY created_at DESC LIMIT ?`, alertType, limit)
@@ -83,8 +74,7 @@ func (s *AlertStore) RecentByType(ctx context.Context, alertType string, limit i
 	return scanAlerts(rows)
 }
 
-// Count returns the total number of alert records.
-func (s *AlertStore) Count(ctx context.Context) (int64, error) {
+func (s *AlertRepo) Count(ctx context.Context) (int64, error) {
 	var n int64
 	err := s.rdb.QueryRowContext(ctx, `SELECT COUNT(*) FROM alerts`).Scan(&n)
 	return n, err

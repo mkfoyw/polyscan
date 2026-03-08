@@ -5,7 +5,7 @@ import (
 	"log/slog"
 
 	"github.com/gregdel/pushover"
-	"github.com/mkfoyw/polyscan/internal/store"
+	"github.com/mkfoyw/polyscan/internal/repository"
 )
 
 // Pushover sends smart money trade notifications via Pushover.
@@ -25,7 +25,7 @@ func NewPushover(appKey, userKey string, logger *slog.Logger) *Pushover {
 }
 
 // SendSmartMoneyTrade sends a notification for a smart money trade.
-func (p *Pushover) SendSmartMoneyTrade(t store.SmartMoneyTrade) {
+func (p *Pushover) SendSmartMoneyTrade(t repository.SmartMoneyTrade) {
 	side := "买入"
 	if t.Side == "SELL" {
 		side = "卖出"

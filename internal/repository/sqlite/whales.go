@@ -1,52 +1,24 @@
-package store
+package sqlite
 
 import (
 	"context"
 	"database/sql"
 	"time"
+
+	"github.com/mkfoyw/polyscan/internal/repository"
 )
 
-// WhaleRecord is a whale user persisted to SQLite (whale_users table).
-type WhaleRecord struct {
-	Address          string    `json:"address"`
-	Alias            string    `json:"alias,omitempty"`
-	Name             string    `json:"name,omitempty"`
-	Pseudonym        string    `json:"pseudonym,omitempty"`
-	Source           string    `json:"source"`
-	FirstSeenAt      time.Time `json:"first_seen_at"`
-	TotalVolume      float64   `json:"total_volume"`
-	LastPollTS       int64     `json:"last_poll_ts"`
-	ProfileFetchedAt time.Time `json:"profile_fetched_at,omitempty"`
-	UpdatedAt        time.Time `json:"updated_at"`
-}
-
-// DisplayName returns the best display name: alias > name > pseudonym > address.
-func (r *WhaleRecord) DisplayName() string {
-	if r.Alias != "" {
-		return r.Alias
-	}
-	if r.Name != "" {
-		return r.Name
-	}
-	if r.Pseudonym != "" {
-		return r.Pseudonym
-	}
-	return r.Address
-}
-
-// WhaleStore wraps the whale_users table.
-type WhaleStore struct {
-	rdb *sql.DB // reader pool
-	wdb *sql.DB // writer pool
+// WhaleRepo implements repository.WhaleRepository using SQLite.
+type WhaleRepo struct {
+	rdb *sql.DB
+	wdb *sql.DB
 }
 
 const whaleUserCols = `address, alias, name, pseudonym, source, first_seen_at, total_volume, last_poll_ts, profile_fetched_at, updated_at`
 
-// Upsert inserts or updates a whale user record. Returns true if newly inserted.
-func (s *WhaleStore) Upsert(ctx context.Context, rec *WhaleRecord) (bool, error) {
+func (s *WhaleRepo) Upsert(ctx context.Context, rec *repository.WhaleRecord) (bool, error) {
 	rec.UpdatedAt = time.Now()
 
-	// Check if exists first (for return value)
 	var exists bool
 	err := s.rdb.QueryRowContext(ctx,
 		`SELECT 1 FROM whale_users WHERE address = ?`, rec.Address).Scan(&exists)
@@ -74,8 +46,7 @@ func (s *WhaleStore) Upsert(ctx context.Context, rec *WhaleRecord) (bool, error)
 	return isNew, nil
 }
 
-// GetAll returns all tracked whale users.
-func (s *WhaleStore) GetAll(ctx context.Context) ([]WhaleRecord, error) {
+func (s *WhaleRepo) GetAll(ctx context.Context) ([]repository.WhaleRecord, error) {
 	rows, err := s.rdb.QueryContext(ctx,
 		`SELECT `+whaleUserCols+` FROM whale_users`)
 	if err != nil {
@@ -84,8 +55,7 @@ func (s *WhaleStore) GetAll(ctx context.Context) ([]WhaleRecord, error) {
 	return scanWhales(rows)
 }
 
-// GetByAddress returns a single whale user record.
-func (s *WhaleStore) GetByAddress(ctx context.Context, address string) (*WhaleRecord, error) {
+func (s *WhaleRepo) GetByAddress(ctx context.Context, address string) (*repository.WhaleRecord, error) {
 	row := s.rdb.QueryRowContext(ctx,
 		`SELECT `+whaleUserCols+` FROM whale_users WHERE address = ?`, address)
 	r, err := scanWhale(row)
@@ -98,24 +68,21 @@ func (s *WhaleStore) GetByAddress(ctx context.Context, address string) (*WhaleRe
 	return &r, nil
 }
 
-// UpdateLastPollTS updates the last poll timestamp.
-func (s *WhaleStore) UpdateLastPollTS(ctx context.Context, address string, ts int64) error {
+func (s *WhaleRepo) UpdateLastPollTS(ctx context.Context, address string, ts int64) error {
 	_, err := s.wdb.ExecContext(ctx,
 		`UPDATE whale_users SET last_poll_ts = ?, updated_at = ? WHERE address = ?`,
 		ts, time.Now().Unix(), address)
 	return err
 }
 
-// IncrVolume atomically increments the total volume.
-func (s *WhaleStore) IncrVolume(ctx context.Context, address string, amount float64) error {
+func (s *WhaleRepo) IncrVolume(ctx context.Context, address string, amount float64) error {
 	_, err := s.wdb.ExecContext(ctx,
 		`UPDATE whale_users SET total_volume = total_volume + ?, updated_at = ? WHERE address = ?`,
 		amount, time.Now().Unix(), address)
 	return err
 }
 
-// UpdateProfile updates the cached profile name/pseudonym for a whale user.
-func (s *WhaleStore) UpdateProfile(ctx context.Context, address, name, pseudonym string) error {
+func (s *WhaleRepo) UpdateProfile(ctx context.Context, address, name, pseudonym string) error {
 	now := time.Now().Unix()
 	_, err := s.wdb.ExecContext(ctx,
 		`UPDATE whale_users SET name = ?, pseudonym = ?, profile_fetched_at = ?, updated_at = ? WHERE address = ?`,
@@ -123,21 +90,18 @@ func (s *WhaleStore) UpdateProfile(ctx context.Context, address, name, pseudonym
 	return err
 }
 
-// Count returns the total number of tracked whale users.
-func (s *WhaleStore) Count(ctx context.Context) (int64, error) {
+func (s *WhaleRepo) Count(ctx context.Context) (int64, error) {
 	var n int64
 	err := s.rdb.QueryRowContext(ctx, `SELECT COUNT(*) FROM whale_users`).Scan(&n)
 	return n, err
 }
 
-// DeleteByAddress deletes a whale user by address.
-func (s *WhaleStore) DeleteByAddress(ctx context.Context, address string) error {
+func (s *WhaleRepo) DeleteByAddress(ctx context.Context, address string) error {
 	_, err := s.wdb.ExecContext(ctx, `DELETE FROM whale_users WHERE address = ?`, address)
 	return err
 }
 
-// DeleteLowestVolume deletes the auto-tracked whale user with the lowest volume.
-func (s *WhaleStore) DeleteLowestVolume(ctx context.Context) error {
+func (s *WhaleRepo) DeleteLowestVolume(ctx context.Context) error {
 	_, err := s.wdb.ExecContext(ctx, `
 		DELETE FROM whale_users WHERE id = (
 			SELECT id FROM whale_users WHERE source = 'auto'
@@ -146,8 +110,7 @@ func (s *WhaleStore) DeleteLowestVolume(ctx context.Context) error {
 	return err
 }
 
-// Exists checks if a whale user with this address exists.
-func (s *WhaleStore) Exists(ctx context.Context, address string) (bool, error) {
+func (s *WhaleRepo) Exists(ctx context.Context, address string) (bool, error) {
 	var n int
 	err := s.rdb.QueryRowContext(ctx,
 		`SELECT 1 FROM whale_users WHERE address = ? LIMIT 1`, address).Scan(&n)
@@ -157,8 +120,8 @@ func (s *WhaleStore) Exists(ctx context.Context, address string) (bool, error) {
 	return err == nil, err
 }
 
-func scanWhale(sc interface{ Scan(...any) error }) (WhaleRecord, error) {
-	var r WhaleRecord
+func scanWhale(sc interface{ Scan(...any) error }) (repository.WhaleRecord, error) {
+	var r repository.WhaleRecord
 	var firstSeen, profileFetched, updated int64
 	err := sc.Scan(&r.Address, &r.Alias, &r.Name, &r.Pseudonym, &r.Source, &firstSeen,
 		&r.TotalVolume, &r.LastPollTS, &profileFetched, &updated)
@@ -171,9 +134,9 @@ func scanWhale(sc interface{ Scan(...any) error }) (WhaleRecord, error) {
 	return r, nil
 }
 
-func scanWhales(rows *sql.Rows) ([]WhaleRecord, error) {
+func scanWhales(rows *sql.Rows) ([]repository.WhaleRecord, error) {
 	defer rows.Close()
-	var out []WhaleRecord
+	var out []repository.WhaleRecord
 	for rows.Next() {
 		r, err := scanWhale(rows)
 		if err != nil {

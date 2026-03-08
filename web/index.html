@@ -389,8 +389,8 @@ body {
 
   <!-- Column: Whale Trades -->
   <div class="column" id="col-whale-trades" draggable="true">
-    <div class="column-header">
-      <h2>🐋 巨鲸交易</h2>
+    <div class="column-header" style="cursor:pointer" onclick="window.location='/whale-analysis'">
+      <h2>🐋 巨鲸交易 <a href="/whale-analysis" style="font-size:11px;font-weight:400;color:#58a6ff;margin-left:6px" onclick="event.stopPropagation()">📊 分析</a></h2>
       <div class="subtitle">追踪已标记鲸鱼钱包的交易</div>
     </div>
     <div class="filters" id="whale-price-filters">
@@ -438,8 +438,8 @@ body {
 
   <!-- Column: Smart Money Trades -->
   <div class="column" id="col-smart-money" draggable="true">
-    <div class="column-header">
-      <h2>🧠 聪明钱交易</h2>
+    <div class="column-header" style="cursor:pointer" onclick="window.location='/smartmoney-analysis'">
+      <h2>🧠 聪明钱交易 <a href="/smartmoney-analysis" style="font-size:11px;font-weight:400;color:#58a6ff;margin-left:6px" onclick="event.stopPropagation()">📊 分析</a></h2>
       <div class="subtitle">追踪高胜率聪明钱钱包的交易</div>
     </div>
     <div class="filters" id="sm-price-filters">

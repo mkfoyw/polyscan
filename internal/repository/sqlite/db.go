@@ -1,4 +1,5 @@
- package store
+// Package sqlite provides SQLite-backed implementations of the repository interfaces.
+package sqlite
 
 import (
 	"context"
@@ -12,10 +13,8 @@ import (
 	_ "modernc.org/sqlite"
 )
 
-// DB wraps separate reader/writer sql.DB pools and provides access to typed stores.
-// WAL mode allows concurrent readers with a single writer, so we open two pools:
-//   - writerDB: MaxOpenConns(1) — serialises all INSERT/UPDATE/DELETE
-//   - readerDB: MaxOpenConns(4) — allows parallel SELECT from API handlers
+// DB wraps separate reader/writer sql.DB pools.
+// WAL mode allows concurrent readers with a single writer.
 type DB struct {
 	writerDB *sql.DB
 	readerDB *sql.DB
@@ -42,8 +41,7 @@ func openPool(dsn string, maxConn int) (*sql.DB, error) {
 	return db, nil
 }
 
-// NewDB opens a SQLite database with separate reader/writer pools and returns a store handle.
-// It automatically creates the parent directory if it does not exist.
+// NewDB opens a SQLite database with separate reader/writer pools.
 func NewDB(_ context.Context, path string, logger *slog.Logger) (*DB, error) {
 	if dir := filepath.Dir(path); dir != "" && dir != "." {
 		if err := os.MkdirAll(dir, 0o755); err != nil {
@@ -66,7 +64,7 @@ func NewDB(_ context.Context, path string, logger *slog.Logger) (*DB, error) {
 	return &DB{writerDB: writerDB, readerDB: readerDB, logger: logger}, nil
 }
 
-// Close closes both SQLite database connections.
+// Close closes both database connections.
 func (d *DB) Close() error {
 	rErr := d.readerDB.Close()
 	wErr := d.writerDB.Close()
@@ -77,7 +75,6 @@ func (d *DB) Close() error {
 }
 
 // EnsureSchema creates all tables & indexes if they do not exist.
-// Uses the writer connection for DDL statements.
 func (d *DB) EnsureSchema() error {
 	schema := `
 CREATE TABLE IF NOT EXISTS trades (
@@ -201,26 +198,26 @@ CREATE TABLE IF NOT EXISTS profiles (
 	return nil
 }
 
-// Trades returns a TradeStore backed by this database.
-func (d *DB) Trades() *TradeStore { return &TradeStore{rdb: d.readerDB, wdb: d.writerDB} }
+// Trades returns a TradeRepo backed by this database.
+func (d *DB) Trades() *TradeRepo { return &TradeRepo{rdb: d.readerDB, wdb: d.writerDB} }
 
-// Alerts returns an AlertStore backed by this database.
-func (d *DB) Alerts() *AlertStore { return &AlertStore{rdb: d.readerDB, wdb: d.writerDB} }
+// Alerts returns an AlertRepo backed by this database.
+func (d *DB) Alerts() *AlertRepo { return &AlertRepo{rdb: d.readerDB, wdb: d.writerDB} }
 
-// Whales returns a WhaleStore backed by this database.
-func (d *DB) Whales() *WhaleStore { return &WhaleStore{rdb: d.readerDB, wdb: d.writerDB} }
+// Whales returns a WhaleRepo backed by this database.
+func (d *DB) Whales() *WhaleRepo { return &WhaleRepo{rdb: d.readerDB, wdb: d.writerDB} }
 
-// PriceEvents returns a PriceEventStore backed by this database.
-func (d *DB) PriceEvents() *PriceEventStore { return &PriceEventStore{rdb: d.readerDB, wdb: d.writerDB} }
+// PriceEvents returns a PriceEventRepo backed by this database.
+func (d *DB) PriceEvents() *PriceEventRepo { return &PriceEventRepo{rdb: d.readerDB, wdb: d.writerDB} }
 
-// Settlements returns a SettlementStore backed by this database.
-func (d *DB) Settlements() *SettlementStore { return &SettlementStore{rdb: d.readerDB, wdb: d.writerDB} }
+// Settlements returns a SettlementRepo backed by this database.
+func (d *DB) Settlements() *SettlementRepo { return &SettlementRepo{rdb: d.readerDB, wdb: d.writerDB} }
 
-// WhaleTrades returns a WhaleTradStore backed by this database.
-func (d *DB) WhaleTrades() *WhaleTradStore { return &WhaleTradStore{rdb: d.readerDB, wdb: d.writerDB} }
+// WhaleTrades returns a WhaleTradeRepo backed by this database.
+func (d *DB) WhaleTrades() *WhaleTradeRepo { return &WhaleTradeRepo{rdb: d.readerDB, wdb: d.writerDB} }
 
-// Profiles returns a ProfileStore backed by this database.
-func (d *DB) Profiles() *ProfileStore { return &ProfileStore{rdb: d.readerDB, wdb: d.writerDB} }
+// Profiles returns a ProfileRepo backed by this database.
+func (d *DB) Profiles() *ProfileRepo { return &ProfileRepo{rdb: d.readerDB, wdb: d.writerDB} }
 
 // isUniqueViolation checks whether the error is a SQLite UNIQUE constraint failure.
 func isUniqueViolation(err error) bool {

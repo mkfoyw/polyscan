@@ -9,7 +9,8 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/mkfoyw/polyscan/internal/store"
+	"github.com/mkfoyw/polyscan/internal/repository"
+	"github.com/mkfoyw/polyscan/internal/services"
 	"github.com/mkfoyw/polyscan/internal/types"
 	"github.com/mkfoyw/polyscan/internal/whale"
 )
@@ -17,7 +18,7 @@ import (
 // WhalePoller periodically polls the Data API for recent trades by tracked whale wallets.
 type WhalePoller struct {
 	tracker          *whale.Tracker
-	whaleTradDB      *store.WhaleTradStore
+	whaleTradDB      *services.WhaleTradeService
 	interval         time.Duration
 	minDisplayAmount float64 // skip saving trades below this USD amount
 	client           *http.Client
@@ -34,7 +35,7 @@ type WhalePoller struct {
 // NewWhalePoller creates a new whale poller.
 func NewWhalePoller(
 	tracker *whale.Tracker,
-	whaleTradDB *store.WhaleTradStore,
+	whaleTradDB *services.WhaleTradeService,
 	interval time.Duration,
 	minDisplayAmount float64,
 	alerts chan<- types.Alert,
@@ -136,7 +137,7 @@ func (wp *WhalePoller) pollAll(ctx context.Context) {
 
 			// Persist whale trade to dedicated whale_trades table
 			if wp.whaleTradDB != nil {
-				rec := &store.WhaleTrade{
+				rec := &repository.WhaleTrade{
 					ProxyWallet:     w.Address,
 					Side:            act.Side,
 					Asset:           act.Asset,

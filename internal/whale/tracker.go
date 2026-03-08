@@ -7,7 +7,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/mkfoyw/polyscan/internal/store"
+	"github.com/mkfoyw/polyscan/internal/repository"
+	"github.com/mkfoyw/polyscan/internal/services"
 )
 
 // WhaleInfo holds metadata about a tracked whale wallet.
@@ -44,16 +45,16 @@ type Tracker struct {
 	whales     map[string]*WhaleInfo // address -> WhaleInfo
 	maxTracked int
 	logger     *slog.Logger
-	whaleStore *store.WhaleStore
+	whaleSvc *services.WhaleService
 }
 
-// NewTracker creates a new whale tracker backed by MongoDB.
-func NewTracker(maxTracked int, whaleStore *store.WhaleStore, logger *slog.Logger) *Tracker {
+// NewTracker creates a new whale tracker.
+func NewTracker(maxTracked int, whaleSvc *services.WhaleService, logger *slog.Logger) *Tracker {
 	return &Tracker{
 		whales:     make(map[string]*WhaleInfo),
 		maxTracked: maxTracked,
 		logger:     logger,
-		whaleStore: whaleStore,
+		whaleSvc:   whaleSvc,
 	}
 }
 
@@ -62,7 +63,7 @@ func (t *Tracker) Load(ctx context.Context) error {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 
-	records, err := t.whaleStore.GetAll(ctx)
+	records, err := t.whaleSvc.GetAll(ctx)
 	if err != nil {
 		return err
 	}
@@ -95,7 +96,7 @@ func (t *Tracker) Save(ctx context.Context) error {
 	t.mu.RUnlock()
 
 	for _, w := range whales {
-		rec := &store.WhaleRecord{
+		rec := &repository.WhaleRecord{
 			Address:          w.Address,
 			Alias:            w.Alias,
 			Name:             w.Name,
@@ -106,7 +107,7 @@ func (t *Tracker) Save(ctx context.Context) error {
 			LastPollTS:       w.LastPollTS,
 			ProfileFetchedAt: w.ProfileFetchedAt,
 		}
-		if _, err := t.whaleStore.Upsert(ctx, rec); err != nil {
+		if _, err := t.whaleSvc.Upsert(ctx, rec); err != nil {
 			t.logger.Error("failed to upsert whale to MongoDB", "address", w.Address, "error", err)
 		}
 	}
@@ -129,14 +130,14 @@ func (t *Tracker) AddManual(ctx context.Context, address, alias string) {
 		}
 	}
 
-	// Persist to MongoDB
-	rec := &store.WhaleRecord{
+	// Persist
+	rec := &repository.WhaleRecord{
 		Address:     address,
 		Alias:       alias,
 		Source:      "manual",
 		FirstSeenAt: time.Now(),
 	}
-	if _, err := t.whaleStore.Upsert(ctx, rec); err != nil {
+	if _, err := t.whaleSvc.Upsert(ctx, rec); err != nil {
 		t.logger.Error("failed to upsert manual whale", "address", address, "error", err)
 	}
 }
@@ -147,7 +148,7 @@ func (t *Tracker) Remove(ctx context.Context, address string) {
 	delete(t.whales, address)
 	t.mu.Unlock()
 
-	if err := t.whaleStore.DeleteByAddress(ctx, address); err != nil {
+	if err := t.whaleSvc.DeleteByAddress(ctx, address); err != nil {
 		t.logger.Error("failed to delete whale", "address", address, "error", err)
 	}
 }
@@ -163,7 +164,7 @@ func (t *Tracker) AddAuto(ctx context.Context, address string, volume float64) b
 		go func() {
 			bgCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 			defer cancel()
-			_ = t.whaleStore.IncrVolume(bgCtx, address, volume)
+			_ = t.whaleSvc.IncrVolume(bgCtx, address, volume)
 		}()
 		return false
 	}
@@ -181,8 +182,8 @@ func (t *Tracker) AddAuto(ctx context.Context, address string, volume float64) b
 		TotalVolume: volume,
 	}
 
-	// Persist to MongoDB
-	rec := &store.WhaleRecord{
+	// Persist
+	rec := &repository.WhaleRecord{
 		Address:     address,
 		Source:      "auto",
 		FirstSeenAt: now,
@@ -191,7 +192,7 @@ func (t *Tracker) AddAuto(ctx context.Context, address string, volume float64) b
 	go func() {
 		bgCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
-		if _, err := t.whaleStore.Upsert(bgCtx, rec); err != nil {
+		if _, err := t.whaleSvc.Upsert(bgCtx, rec); err != nil {
 			t.logger.Error("failed to persist auto whale", "address", address, "error", err)
 		}
 	}()
@@ -221,11 +222,11 @@ func (t *Tracker) evictLowest(ctx context.Context) {
 	delete(t.whales, victim.Address)
 	t.logger.Info("evicted whale", "address", victim.Address, "volume", victim.TotalVolume)
 
-	// Also remove from MongoDB
+	// Also remove from DB
 	go func() {
 		bgCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
-		_ = t.whaleStore.DeleteLowestVolume(bgCtx)
+		_ = t.whaleSvc.DeleteLowestVolume(bgCtx)
 	}()
 }
 
@@ -264,7 +265,7 @@ func (t *Tracker) UpdateLastPollTS(ctx context.Context, address string, ts int64
 			go func() {
 				bgCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 				defer cancel()
-				_ = t.whaleStore.UpdateLastPollTS(bgCtx, address, ts)
+				_ = t.whaleSvc.UpdateLastPollTS(bgCtx, address, ts)
 			}()
 		}
 	}
@@ -279,7 +280,7 @@ func (t *Tracker) UpdateVolume(ctx context.Context, address string, amount float
 		go func() {
 			bgCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 			defer cancel()
-			_ = t.whaleStore.IncrVolume(bgCtx, address, amount)
+			_ = t.whaleSvc.IncrVolume(bgCtx, address, amount)
 		}()
 	}
 }
@@ -295,7 +296,7 @@ func (t *Tracker) UpdateProfile(ctx context.Context, address, name, pseudonym st
 		go func() {
 			bgCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 			defer cancel()
-			_ = t.whaleStore.UpdateProfile(bgCtx, address, name, pseudonym)
+			_ = t.whaleSvc.UpdateProfile(bgCtx, address, name, pseudonym)
 		}()
 	}
 }

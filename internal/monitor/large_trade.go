@@ -10,7 +10,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/mkfoyw/polyscan/internal/store"
+	"github.com/mkfoyw/polyscan/internal/repository"
+	"github.com/mkfoyw/polyscan/internal/services"
 	"github.com/mkfoyw/polyscan/internal/types"
 )
 
@@ -21,7 +22,7 @@ type LargeTrade struct {
 	store     *types.MarketStore
 	alerts    chan<- types.Alert
 	logger    *slog.Logger
-	tradeDB   *store.TradeStore // MongoDB trade persistence
+	tradeDB   *services.TradeService // trade persistence
 	client    *http.Client      // for REST enrichment of WS trades
 
 	// OnLargeTrade is called when a large trade is detected.
@@ -36,7 +37,7 @@ type LargeTrade struct {
 
 	// OnTradeStored is called whenever a trade is stored in the database.
 	// Used to push real-time updates to SSE clients.
-	OnTradeStored func(store.TradeRecord)
+	OnTradeStored func(repository.TradeRecord)
 
 	// ProfileLookup resolves a wallet address to a Polymarket display name.
 	// Injected from main.go. Returns "" if not available.
@@ -48,7 +49,7 @@ type LargeTrade struct {
 }
 
 // NewLargeTrade creates a new large trade monitor.
-func NewLargeTrade(threshold, maxPrice float64, store *types.MarketStore, tradeDB *store.TradeStore, alerts chan<- types.Alert, client *http.Client, logger *slog.Logger) *LargeTrade {
+func NewLargeTrade(threshold, maxPrice float64, store *types.MarketStore, tradeDB *services.TradeService, alerts chan<- types.Alert, client *http.Client, logger *slog.Logger) *LargeTrade {
 	if client == nil {
 		client = &http.Client{Timeout: 10 * time.Second}
 	}
@@ -140,7 +141,7 @@ func (lt *LargeTrade) processWSEvent(ctx context.Context, msg types.WSLastTradeP
 		if market != nil {
 			conditionID = market.ConditionID
 		}
-		rec := &store.TradeRecord{
+		rec := &repository.TradeRecord{
 			Side:        msg.Side,
 			Asset:       msg.AssetID,
 			ConditionID: conditionID,
@@ -215,7 +216,7 @@ func (lt *LargeTrade) ProcessRESTTrade(ctx context.Context, trade types.Trade) {
 		if profileName == "" && lt.ProfileLookup != nil && trade.ProxyWallet != "" {
 			profileName = lt.ProfileLookup(ctx, trade.ProxyWallet)
 		}
-		rec := &store.TradeRecord{
+		rec := &repository.TradeRecord{
 			ProxyWallet:     trade.ProxyWallet,
 			Pseudonym:       trade.Pseudonym,
 			ProfileName:     profileName,
@@ -310,7 +311,7 @@ func (lt *LargeTrade) BackfillRESTTrade(ctx context.Context, trade types.Trade) 
 	if profileName == "" && lt.ProfileLookup != nil && trade.ProxyWallet != "" {
 		profileName = lt.ProfileLookup(ctx, trade.ProxyWallet)
 	}
-	rec := &store.TradeRecord{
+	rec := &repository.TradeRecord{
 		ProxyWallet:     trade.ProxyWallet,
 		Pseudonym:       trade.Pseudonym,
 		ProfileName:     profileName,

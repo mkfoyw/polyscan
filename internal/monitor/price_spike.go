@@ -10,7 +10,8 @@ import (
 	"time"
 
 	"github.com/mkfoyw/polyscan/internal/config"
-	"github.com/mkfoyw/polyscan/internal/store"
+	"github.com/mkfoyw/polyscan/internal/repository"
+	"github.com/mkfoyw/polyscan/internal/services"
 	"github.com/mkfoyw/polyscan/internal/types"
 )
 
@@ -78,7 +79,7 @@ type PriceSpike struct {
 	maxAge       time.Duration
 	cooldown     time.Duration
 	store        *types.MarketStore
-	priceEventDB *store.PriceEventStore // MongoDB price event persistence
+	priceEventDB *services.PriceEventService // price event persistence
 	alerts       chan<- types.Alert
 	logger       *slog.Logger
 
@@ -91,7 +92,7 @@ func NewPriceSpike(
 	rules []config.PriceSpikeRule,
 	cooldown time.Duration,
 	store *types.MarketStore,
-	priceEventDB *store.PriceEventStore,
+	priceEventDB *services.PriceEventService,
 	alerts chan<- types.Alert,
 	logger *slog.Logger,
 ) *PriceSpike {
@@ -230,7 +231,7 @@ func (ps *PriceSpike) checkRule(ctx context.Context, assetID string, w *assetWin
 		if market != nil {
 			conditionID = market.ConditionID
 		}
-		rec := &store.PriceEventRecord{
+		rec := &repository.PriceEventRecord{
 			AssetID:     assetID,
 			Market:      conditionID,
 			Question:    question,

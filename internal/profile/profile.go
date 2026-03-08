@@ -8,7 +8,8 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/mkfoyw/polyscan/internal/store"
+	"github.com/mkfoyw/polyscan/internal/repository"
+	"github.com/mkfoyw/polyscan/internal/services"
 )
 
 const (
@@ -36,20 +37,20 @@ func (p *Profile) DisplayName() string {
 type Client struct {
 	http          *http.Client
 	logger        *slog.Logger
-	profileStore  *store.ProfileStore
+	profileSvc    *services.ProfileService
 	staleDuration time.Duration
 }
 
 // NewClient creates a new profile client backed by a ProfileStore.
 // staleDuration controls how long a cached profile is considered fresh (0 = 24h default).
-func NewClient(logger *slog.Logger, profileStore *store.ProfileStore, staleDuration time.Duration) *Client {
+func NewClient(logger *slog.Logger, profileSvc *services.ProfileService, staleDuration time.Duration) *Client {
 	if staleDuration <= 0 {
 		staleDuration = 24 * time.Hour
 	}
 	return &Client{
 		http:          &http.Client{Timeout: 10 * time.Second},
 		logger:        logger,
-		profileStore:  profileStore,
+		profileSvc:    profileSvc,
 		staleDuration: staleDuration,
 	}
 }
@@ -63,8 +64,8 @@ func (c *Client) Lookup(ctx context.Context, proxyWallet string) string {
 	}
 
 	// Check DB cache
-	if c.profileStore != nil {
-		rec, err := c.profileStore.Get(ctx, proxyWallet)
+	if c.profileSvc != nil {
+		rec, err := c.profileSvc.Get(ctx, proxyWallet)
 		if err == nil && rec != nil && time.Since(rec.FetchedAt) < c.staleDuration {
 			return rec.DisplayName()
 		}
@@ -78,8 +79,8 @@ func (c *Client) Lookup(ctx context.Context, proxyWallet string) string {
 	}
 
 	// Persist to DB cache
-	if c.profileStore != nil {
-		_ = c.profileStore.Upsert(ctx, &store.ProfileRecord{
+	if c.profileSvc != nil {
+		_ = c.profileSvc.Upsert(ctx, &repository.ProfileRecord{
 			Address:   proxyWallet,
 			Name:      p.Name,
 			Pseudonym: p.Pseudonym,

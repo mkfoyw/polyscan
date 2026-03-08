@@ -1,36 +1,21 @@
-package store
+package sqlite
 
 import (
 	"context"
 	"database/sql"
 	"strings"
 	"time"
+
+	"github.com/mkfoyw/polyscan/internal/repository"
 )
 
-// ProfileRecord is a cached user profile.
-type ProfileRecord struct {
-	Address   string    `json:"address"`
-	Name      string    `json:"name"`
-	Pseudonym string    `json:"pseudonym,omitempty"`
-	FetchedAt time.Time `json:"fetched_at"`
+// ProfileRepo implements repository.ProfileRepository using SQLite.
+type ProfileRepo struct {
+	rdb *sql.DB
+	wdb *sql.DB
 }
 
-// DisplayName returns the best display name: user-chosen name first, else pseudonym.
-func (p *ProfileRecord) DisplayName() string {
-	if p.Name != "" {
-		return p.Name
-	}
-	return p.Pseudonym
-}
-
-// ProfileStore wraps the profiles table.
-type ProfileStore struct {
-	rdb *sql.DB // reader pool
-	wdb *sql.DB // writer pool
-}
-
-// Upsert inserts or updates a profile record.
-func (s *ProfileStore) Upsert(ctx context.Context, rec *ProfileRecord) error {
+func (s *ProfileRepo) Upsert(ctx context.Context, rec *repository.ProfileRecord) error {
 	if rec.FetchedAt.IsZero() {
 		rec.FetchedAt = time.Now()
 	}
@@ -46,9 +31,8 @@ func (s *ProfileStore) Upsert(ctx context.Context, rec *ProfileRecord) error {
 	return err
 }
 
-// Get returns a profile by address, or nil if not found.
-func (s *ProfileStore) Get(ctx context.Context, address string) (*ProfileRecord, error) {
-	var r ProfileRecord
+func (s *ProfileRepo) Get(ctx context.Context, address string) (*repository.ProfileRecord, error) {
+	var r repository.ProfileRecord
 	var fetchedUnix int64
 	err := s.rdb.QueryRowContext(ctx,
 		`SELECT address, name, pseudonym, fetched_at FROM profiles WHERE address = ?`,
@@ -64,8 +48,7 @@ func (s *ProfileStore) Get(ctx context.Context, address string) (*ProfileRecord,
 	return &r, nil
 }
 
-// GetMulti returns profiles for multiple addresses.
-func (s *ProfileStore) GetMulti(ctx context.Context, addresses []string) (map[string]*ProfileRecord, error) {
+func (s *ProfileRepo) GetMulti(ctx context.Context, addresses []string) (map[string]*repository.ProfileRecord, error) {
 	if len(addresses) == 0 {
 		return nil, nil
 	}
@@ -84,9 +67,9 @@ func (s *ProfileStore) GetMulti(ctx context.Context, addresses []string) (map[st
 	}
 	defer rows.Close()
 
-	m := make(map[string]*ProfileRecord, len(addresses))
+	m := make(map[string]*repository.ProfileRecord, len(addresses))
 	for rows.Next() {
-		var r ProfileRecord
+		var r repository.ProfileRecord
 		var fetchedUnix int64
 		if err := rows.Scan(&r.Address, &r.Name, &r.Pseudonym, &fetchedUnix); err != nil {
 			return nil, err
@@ -97,15 +80,13 @@ func (s *ProfileStore) GetMulti(ctx context.Context, addresses []string) (map[st
 	return m, rows.Err()
 }
 
-// Count returns the total number of cached profiles.
-func (s *ProfileStore) Count(ctx context.Context) (int64, error) {
+func (s *ProfileRepo) Count(ctx context.Context) (int64, error) {
 	var n int64
 	err := s.rdb.QueryRowContext(ctx, `SELECT COUNT(*) FROM profiles`).Scan(&n)
 	return n, err
 }
 
-// DeleteOlderThan removes profiles not refreshed since cutoff.
-func (s *ProfileStore) DeleteOlderThan(ctx context.Context, cutoff time.Time) (int64, error) {
+func (s *ProfileRepo) DeleteOlderThan(ctx context.Context, cutoff time.Time) (int64, error) {
 	res, err := s.wdb.ExecContext(ctx,
 		`DELETE FROM profiles WHERE fetched_at < ?`, cutoff.Unix())
 	if err != nil {

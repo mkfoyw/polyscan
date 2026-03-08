@@ -10,7 +10,8 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
-	"github.com/mkfoyw/polyscan/internal/store"
+	"github.com/mkfoyw/polyscan/internal/repository"
+	"github.com/mkfoyw/polyscan/internal/services"
 	"github.com/mkfoyw/polyscan/internal/types"
 	"github.com/mkfoyw/polyscan/internal/whale"
 )
@@ -18,14 +19,14 @@ import (
 // Server provides HTTP API endpoints for the web application.
 type Server struct {
 	mktStore        *types.MarketStore
-	tradeStore      *store.TradeStore
-	alertStore      *store.AlertStore
-	whaleStore      *store.WhaleStore
-	whaleTradStore  *store.WhaleTradStore
-	priceStore      *store.PriceEventStore
-	settlementStore *store.SettlementStore
-	smUserStore     *store.SmartMoneyUserStore
-	smTradeStore    *store.SmartMoneyTradeStore
+	tradeSvc        *services.TradeService
+	alertSvc        *services.AlertService
+	whaleSvc        *services.WhaleService
+	whaleTradeSvc   *services.WhaleTradeService
+	priceSvc        *services.PriceEventService
+	settlementSvc   *services.SettlementService
+	smUserSvc       *services.SmartMoneyUserService
+	smTradeSvc      *services.SmartMoneyTradeService
 	tracker         *whale.Tracker
 	adminTokens     map[string]struct{}
 	topMoversFn     func(time.Duration, int) []types.PriceMover
@@ -48,14 +49,14 @@ func NewServer(
 	addr string,
 	adminTokens []string,
 	mktStore *types.MarketStore,
-	tradeStore *store.TradeStore,
-	alertStore *store.AlertStore,
-	whaleStore *store.WhaleStore,
-	whaleTradStore *store.WhaleTradStore,
-	priceStore *store.PriceEventStore,
-	settlementStore *store.SettlementStore,
-	smUserStore *store.SmartMoneyUserStore,
-	smTradeStore *store.SmartMoneyTradeStore,
+	tradeSvc *services.TradeService,
+	alertSvc *services.AlertService,
+	whaleSvc *services.WhaleService,
+	whaleTradeSvc *services.WhaleTradeService,
+	priceSvc *services.PriceEventService,
+	settlementSvc *services.SettlementService,
+	smUserSvc *services.SmartMoneyUserService,
+	smTradeSvc *services.SmartMoneyTradeService,
 	tracker *whale.Tracker,
 	topMoversFn func(time.Duration, int) []types.PriceMover,
 	broker *Broker,
@@ -63,14 +64,14 @@ func NewServer(
 ) *Server {
 	s := &Server{
 		mktStore:        mktStore,
-		tradeStore:      tradeStore,
-		alertStore:      alertStore,
-		whaleStore:      whaleStore,
-		whaleTradStore:  whaleTradStore,
-		priceStore:      priceStore,
-		settlementStore: settlementStore,
-		smUserStore:     smUserStore,
-		smTradeStore:    smTradeStore,
+		tradeSvc:        tradeSvc,
+		alertSvc:        alertSvc,
+		whaleSvc:        whaleSvc,
+		whaleTradeSvc:   whaleTradeSvc,
+		priceSvc:        priceSvc,
+		settlementSvc:   settlementSvc,
+		smUserSvc:       smUserSvc,
+		smTradeSvc:      smTradeSvc,
 		tracker:         tracker,
 		adminTokens:     toSet(adminTokens),
 		topMoversFn:     topMoversFn,
@@ -103,6 +104,8 @@ func NewServer(
 		// Smart money endpoints
 		api.GET("/smart-money", s.handleSmartMoney)
 		api.GET("/smart-money-trades", s.handleSmartMoneyTrades)
+		api.GET("/smart-money-analysis", s.handleSmartMoneyAnalysis)
+		api.GET("/whale-analysis", s.handleWhaleAnalysis)
 
 		// Admin endpoints (require admin_token)
 		admin := api.Group("", s.adminAuth())
@@ -118,6 +121,8 @@ func NewServer(
 	r.GET("/", func(c *gin.Context) { c.File("web/index.html") })
 	r.GET("/whales", func(c *gin.Context) { c.File("web/whales.html") })
 	r.GET("/smartmoney", func(c *gin.Context) { c.File("web/smartmoney.html") })
+	r.GET("/smartmoney-analysis", func(c *gin.Context) { c.File("web/smartmoney-analysis.html") })
+	r.GET("/whale-analysis", func(c *gin.Context) { c.File("web/whale-analysis.html") })
 
 	s.httpServer = &http.Server{
 		Addr:        addr,
@@ -154,11 +159,11 @@ func (s *Server) handleHealth(c *gin.Context) {
 
 func (s *Server) handleStats(c *gin.Context) {
 	ctx := c.Request.Context()
-	tradeCount, _ := s.tradeStore.Count(ctx)
-	alertCount, _ := s.alertStore.Count(ctx)
-	whaleCount, _ := s.whaleStore.Count(ctx)
-	whaleTradeCount, _ := s.whaleTradStore.Count(ctx)
-	priceEventCount, _ := s.priceStore.Count(ctx)
+	tradeCount, _ := s.tradeSvc.Count(ctx)
+	alertCount, _ := s.alertSvc.Count(ctx)
+	whaleCount, _ := s.whaleSvc.Count(ctx)
+	whaleTradeCount, _ := s.whaleTradeSvc.Count(ctx)
+	priceEventCount, _ := s.priceSvc.Count(ctx)
 
 	c.JSON(http.StatusOK, gin.H{
 		"markets":      s.mktStore.Count(),
@@ -210,15 +215,15 @@ func (s *Server) handleTrades(c *gin.Context) {
 	minPrice := queryFloat(c, "min_price", 0) // e.g. 0.1 for ≥10¢
 	beforeTS := queryInt64(c, "before", 0)     // cursor: timestamp in seconds
 
-	var trades []store.TradeRecord
+	var trades []repository.TradeRecord
 	var err error
 	if minUSD > 0 || maxPrice > 0 || minPrice > 0 {
 		if minUSD <= 0 {
 			minUSD = 0.01 // effectively no USD filter
 		}
-		trades, err = s.tradeStore.RecentLarge(ctx, minUSD, int64(limit), beforeTS, maxPrice, minPrice)
+		trades, err = s.tradeSvc.RecentLarge(ctx, minUSD, int64(limit), beforeTS, maxPrice, minPrice)
 	} else {
-		trades, err = s.tradeStore.Recent(ctx, int64(limit), beforeTS)
+		trades, err = s.tradeSvc.Recent(ctx, int64(limit), beforeTS)
 	}
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
@@ -232,7 +237,7 @@ func (s *Server) handleTradesByWallet(c *gin.Context) {
 	wallet := c.Param("wallet")
 	limit := queryInt(c, "limit", 50)
 
-	trades, err := s.tradeStore.RecentByWallet(ctx, wallet, int64(limit))
+	trades, err := s.tradeSvc.RecentByWallet(ctx, wallet, int64(limit))
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
@@ -242,7 +247,7 @@ func (s *Server) handleTradesByWallet(c *gin.Context) {
 
 func (s *Server) handleWhales(c *gin.Context) {
 	ctx := c.Request.Context()
-	whales, err := s.whaleStore.GetAll(ctx)
+	whales, err := s.whaleSvc.GetAll(ctx)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
@@ -250,7 +255,7 @@ func (s *Server) handleWhales(c *gin.Context) {
 
 	// Build response with display_name resolved from whale_users table directly
 	type whaleResp struct {
-		store.WhaleRecord
+		repository.WhaleRecord
 		DisplayName string `json:"display_name,omitempty"`
 	}
 
@@ -275,13 +280,13 @@ func (s *Server) handleWhaleTrades(c *gin.Context) {
 	walletFilter := strings.ToLower(strings.TrimSpace(c.Query("wallet")))
 
 	// Get all tracked whale addresses
-	whales, err := s.whaleStore.GetAll(ctx)
+	whales, err := s.whaleSvc.GetAll(ctx)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
 	if len(whales) == 0 {
-		c.JSON(http.StatusOK, []store.WhaleTrade{})
+		c.JSON(http.StatusOK, []repository.WhaleTrade{})
 		return
 	}
 
@@ -305,11 +310,11 @@ func (s *Server) handleWhaleTrades(c *gin.Context) {
 		}
 	}
 	if len(addrs) == 0 {
-		c.JSON(http.StatusOK, []store.WhaleTrade{})
+		c.JSON(http.StatusOK, []repository.WhaleTrade{})
 		return
 	}
 
-	trades, err := s.whaleTradStore.Recent(ctx, addrs, int64(limit), beforeTS, afterTS, minUSD, maxPrice)
+	trades, err := s.whaleTradeSvc.Recent(ctx, addrs, int64(limit), beforeTS, afterTS, minUSD, maxPrice)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
@@ -440,7 +445,7 @@ func (s *Server) handleWhaleDetail(c *gin.Context) {
 	ctx := c.Request.Context()
 	address := c.Param("address")
 
-	whaleRec, err := s.whaleStore.GetByAddress(ctx, address)
+	whaleRec, err := s.whaleSvc.GetByAddress(ctx, address)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
@@ -452,7 +457,7 @@ func (s *Server) handleWhaleDetail(c *gin.Context) {
 
 	// Fetch recent trades from whale_trades table
 	limit := queryInt(c, "limit", 20)
-	trades, err := s.whaleTradStore.RecentByWallet(ctx, address, int64(limit))
+	trades, err := s.whaleTradeSvc.RecentByWallet(ctx, address, int64(limit))
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
@@ -477,12 +482,12 @@ func (s *Server) handleAlerts(c *gin.Context) {
 	limit := queryInt(c, "limit", 50)
 	alertType := c.Query("type")
 
-	var alerts []store.AlertRecord
+	var alerts []repository.AlertRecord
 	var err error
 	if alertType != "" {
-		alerts, err = s.alertStore.RecentByType(ctx, alertType, int64(limit))
+		alerts, err = s.alertSvc.RecentByType(ctx, alertType, int64(limit))
 	} else {
-		alerts, err = s.alertStore.Recent(ctx, int64(limit))
+		alerts, err = s.alertSvc.Recent(ctx, int64(limit))
 	}
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
@@ -496,12 +501,12 @@ func (s *Server) handlePriceEvents(c *gin.Context) {
 	limit := queryInt(c, "limit", 50)
 	assetID := c.Query("asset_id")
 
-	var events []store.PriceEventRecord
+	var events []repository.PriceEventRecord
 	var err error
 	if assetID != "" {
-		events, err = s.priceStore.RecentByAsset(ctx, assetID, int64(limit))
+		events, err = s.priceSvc.RecentByAsset(ctx, assetID, int64(limit))
 	} else {
-		events, err = s.priceStore.Recent(ctx, int64(limit))
+		events, err = s.priceSvc.Recent(ctx, int64(limit))
 	}
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
@@ -569,9 +574,9 @@ func (s *Server) handlePriceMoves(c *gin.Context) {
 	}
 
 	// Fallback: if no in-memory movers, use recent price events from MongoDB
-	if len(movers) == 0 && s.priceStore != nil {
+	if len(movers) == 0 && s.priceSvc != nil {
 		ctx := c.Request.Context()
-		events, err := s.priceStore.Recent(ctx, int64(limit))
+		events, err := s.priceSvc.Recent(ctx, int64(limit))
 		if err == nil && len(events) > 0 {
 			movers = make([]types.PriceMover, 0, len(events))
 			for _, e := range events {
@@ -651,8 +656,8 @@ func (s *Server) handleSettlements(c *gin.Context) {
 	ctx := c.Request.Context()
 	limit := queryInt(c, "limit", 20)
 
-	if s.settlementStore == nil {
-		c.JSON(http.StatusOK, []store.SettlementRecord{})
+	if s.settlementSvc == nil {
+		c.JSON(http.StatusOK, []repository.SettlementRecord{})
 		return
 	}
 
@@ -663,7 +668,7 @@ func (s *Server) handleSettlements(c *gin.Context) {
 		}
 	}
 
-	records, err := s.settlementStore.Recent(ctx, int64(limit), before)
+	records, err := s.settlementSvc.Recent(ctx, int64(limit), before)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
@@ -674,19 +679,19 @@ func (s *Server) handleSettlements(c *gin.Context) {
 // --- Smart Money Handlers ---
 
 func (s *Server) handleSmartMoney(c *gin.Context) {
-	if s.smUserStore == nil {
-		c.JSON(http.StatusOK, []store.SmartMoneyUser{})
+	if s.smUserSvc == nil {
+		c.JSON(http.StatusOK, []repository.SmartMoneyUser{})
 		return
 	}
 	ctx := c.Request.Context()
 	status := c.Query("status") // filter by status: candidate, confirmed, rejected
 
-	var users []store.SmartMoneyUser
+	var users []repository.SmartMoneyUser
 	var err error
 	if status != "" {
-		users, err = s.smUserStore.GetByStatus(ctx, status)
+		users, err = s.smUserSvc.GetByStatus(ctx, status)
 	} else {
-		users, err = s.smUserStore.GetAll(ctx)
+		users, err = s.smUserSvc.GetAll(ctx)
 	}
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
@@ -694,7 +699,7 @@ func (s *Server) handleSmartMoney(c *gin.Context) {
 	}
 
 	type smResp struct {
-		store.SmartMoneyUser
+		repository.SmartMoneyUser
 		DisplayName string `json:"display_name,omitempty"`
 	}
 	resp := make([]smResp, len(users))
@@ -706,8 +711,8 @@ func (s *Server) handleSmartMoney(c *gin.Context) {
 }
 
 func (s *Server) handleSmartMoneyTrades(c *gin.Context) {
-	if s.smUserStore == nil || s.smTradeStore == nil {
-		c.JSON(http.StatusOK, []store.SmartMoneyTrade{})
+	if s.smUserSvc == nil || s.smTradeSvc == nil {
+		c.JSON(http.StatusOK, []repository.SmartMoneyTrade{})
 		return
 	}
 	ctx := c.Request.Context()
@@ -718,13 +723,13 @@ func (s *Server) handleSmartMoneyTrades(c *gin.Context) {
 	walletFilter := strings.ToLower(strings.TrimSpace(c.Query("wallet")))
 
 	// Get all confirmed smart money addresses
-	confirmed, err := s.smUserStore.GetConfirmed(ctx)
+	confirmed, err := s.smUserSvc.GetConfirmed(ctx)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
 	if len(confirmed) == 0 {
-		c.JSON(http.StatusOK, []store.SmartMoneyTrade{})
+		c.JSON(http.StatusOK, []repository.SmartMoneyTrade{})
 		return
 	}
 
@@ -747,11 +752,11 @@ func (s *Server) handleSmartMoneyTrades(c *gin.Context) {
 		}
 	}
 	if len(addrs) == 0 {
-		c.JSON(http.StatusOK, []store.SmartMoneyTrade{})
+		c.JSON(http.StatusOK, []repository.SmartMoneyTrade{})
 		return
 	}
 
-	trades, err := s.smTradeStore.Recent(ctx, addrs, int64(limit), beforeTS, minUSD, maxPrice)
+	trades, err := s.smTradeSvc.Recent(ctx, addrs, int64(limit), beforeTS, minUSD, maxPrice)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
@@ -767,6 +772,466 @@ func (s *Server) handleSmartMoneyTrades(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, trades)
+}
+
+// handleWhaleAnalysis aggregates whale trades from the last N hours (default 48)
+// and returns per-market and per-wallet summaries.
+func (s *Server) handleWhaleAnalysis(c *gin.Context) {
+	if s.whaleSvc == nil || s.whaleTradeSvc == nil {
+		c.JSON(http.StatusOK, gin.H{
+			"wallets": []any{},
+			"markets": []any{},
+			"trades":  []repository.WhaleTrade{},
+			"summary": gin.H{},
+		})
+		return
+	}
+	ctx := c.Request.Context()
+	hours := queryInt(c, "hours", 24)
+	sinceTS := time.Now().Add(-time.Duration(hours) * time.Hour).Unix()
+
+	// Get all whale users
+	whales, err := s.whaleSvc.GetAll(ctx)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	if len(whales) == 0 {
+		c.JSON(http.StatusOK, gin.H{
+			"wallets": []any{},
+			"markets": []any{},
+			"trades":  []repository.WhaleTrade{},
+			"summary": gin.H{},
+		})
+		return
+	}
+
+	// Build name map & address list
+	type whaleNames struct {
+		Name      string
+		Pseudonym string
+		Alias     string
+	}
+	nameMap := make(map[string]whaleNames, len(whales))
+	addrs := make([]string, 0, len(whales))
+	for _, w := range whales {
+		nameMap[w.Address] = whaleNames{Name: w.Name, Pseudonym: w.Pseudonym, Alias: w.Alias}
+		addrs = append(addrs, w.Address)
+	}
+
+	// Fetch all trades since cutoff (use Recent with afterTS)
+	trades, err := s.whaleTradeSvc.Recent(ctx, addrs, 100000, 0, sinceTS, 0, 0)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	// Enrich profile names
+	for i := range trades {
+		if wn, ok := nameMap[trades[i].ProxyWallet]; ok {
+			if dn := resolveDisplayName(wn.Name, wn.Pseudonym, wn.Alias); dn != "" {
+				trades[i].ProfileName = dn
+			}
+		}
+	}
+
+	// --- Aggregate per market (condition_id + outcome) ---
+	type marketKey struct {
+		ConditionID string
+		Outcome     string
+	}
+	type marketAgg struct {
+		Title       string   `json:"title"`
+		Slug        string   `json:"slug"`
+		EventSlug   string   `json:"event_slug,omitempty"`
+		ConditionID string   `json:"condition_id"`
+		Outcome     string   `json:"outcome"`
+		BuyCount    int      `json:"buy_count"`
+		SellCount   int      `json:"sell_count"`
+		BuyUSD      float64  `json:"buy_usd"`
+		SellUSD     float64  `json:"sell_usd"`
+		NetUSD      float64  `json:"net_usd"`
+		AvgPrice    float64  `json:"avg_price"`
+		TotalSize   float64  `json:"total_size"`
+		Wallets     []string `json:"wallets"`
+		walletSet   map[string]struct{}
+	}
+	mktMap := make(map[marketKey]*marketAgg)
+
+	// --- Aggregate per wallet ---
+	type walletAgg struct {
+		Address     string  `json:"address"`
+		DisplayName string  `json:"display_name"`
+		BuyCount    int     `json:"buy_count"`
+		SellCount   int     `json:"sell_count"`
+		BuyUSD      float64 `json:"buy_usd"`
+		SellUSD     float64 `json:"sell_usd"`
+		NetUSD      float64 `json:"net_usd"`
+		Markets     int     `json:"markets"`
+		marketSet   map[string]struct{}
+	}
+	walMap := make(map[string]*walletAgg)
+
+	var totalBuyUSD, totalSellUSD float64
+	var totalBuys, totalSells int
+
+	for _, t := range trades {
+		mk := marketKey{t.ConditionID, t.Outcome}
+		ma := mktMap[mk]
+		if ma == nil {
+			ma = &marketAgg{
+				Title:       t.Title,
+				Slug:        t.Slug,
+				EventSlug:   t.EventSlug,
+				ConditionID: t.ConditionID,
+				Outcome:     t.Outcome,
+				walletSet:   make(map[string]struct{}),
+			}
+			mktMap[mk] = ma
+		}
+		isBuy := strings.EqualFold(t.Side, "BUY")
+		if isBuy {
+			ma.BuyCount++
+			ma.BuyUSD += t.USDValue
+			totalBuys++
+			totalBuyUSD += t.USDValue
+		} else {
+			ma.SellCount++
+			ma.SellUSD += t.USDValue
+			totalSells++
+			totalSellUSD += t.USDValue
+		}
+		ma.TotalSize += t.Size
+		ma.walletSet[t.ProxyWallet] = struct{}{}
+
+		wa := walMap[t.ProxyWallet]
+		if wa == nil {
+			dn := t.ProxyWallet
+			if wn, ok := nameMap[t.ProxyWallet]; ok {
+				if resolved := resolveDisplayName(wn.Name, wn.Pseudonym, wn.Alias); resolved != "" {
+					dn = resolved
+				}
+			}
+			wa = &walletAgg{
+				Address:     t.ProxyWallet,
+				DisplayName: dn,
+				marketSet:   make(map[string]struct{}),
+			}
+			walMap[t.ProxyWallet] = wa
+		}
+		if isBuy {
+			wa.BuyCount++
+			wa.BuyUSD += t.USDValue
+		} else {
+			wa.SellCount++
+			wa.SellUSD += t.USDValue
+		}
+		wa.marketSet[t.ConditionID] = struct{}{}
+	}
+
+	// Finalize market aggregates
+	markets := make([]marketAgg, 0, len(mktMap))
+	for _, ma := range mktMap {
+		ma.NetUSD = ma.BuyUSD - ma.SellUSD
+		if ma.TotalSize > 0 {
+			ma.AvgPrice = (ma.BuyUSD + ma.SellUSD) / ma.TotalSize
+		}
+		ma.Wallets = make([]string, 0, len(ma.walletSet))
+		for w := range ma.walletSet {
+			if wn, ok := nameMap[w]; ok {
+				if dn := resolveDisplayName(wn.Name, wn.Pseudonym, wn.Alias); dn != "" {
+					ma.Wallets = append(ma.Wallets, dn)
+					continue
+				}
+			}
+			ma.Wallets = append(ma.Wallets, w)
+		}
+		markets = append(markets, *ma)
+	}
+
+	// Sort markets by abs(net USD) descending
+	for i := 0; i < len(markets); i++ {
+		for j := i + 1; j < len(markets); j++ {
+			absI := markets[i].NetUSD
+			if absI < 0 {
+				absI = -absI
+			}
+			absJ := markets[j].NetUSD
+			if absJ < 0 {
+				absJ = -absJ
+			}
+			if absJ > absI {
+				markets[i], markets[j] = markets[j], markets[i]
+			}
+		}
+	}
+
+	// Finalize wallet aggregates
+	wallets := make([]walletAgg, 0, len(walMap))
+	for _, wa := range walMap {
+		wa.NetUSD = wa.BuyUSD - wa.SellUSD
+		wa.Markets = len(wa.marketSet)
+		wallets = append(wallets, *wa)
+	}
+
+	// Sort wallets by total volume descending
+	for i := 0; i < len(wallets); i++ {
+		for j := i + 1; j < len(wallets); j++ {
+			volI := wallets[i].BuyUSD + wallets[i].SellUSD
+			volJ := wallets[j].BuyUSD + wallets[j].SellUSD
+			if volJ > volI {
+				wallets[i], wallets[j] = wallets[j], wallets[i]
+			}
+		}
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"wallets": wallets,
+		"markets": markets,
+		"trades":  trades,
+		"summary": gin.H{
+			"hours":          hours,
+			"total_trades":   len(trades),
+			"total_buys":     totalBuys,
+			"total_sells":    totalSells,
+			"total_buy_usd":  totalBuyUSD,
+			"total_sell_usd": totalSellUSD,
+			"net_usd":        totalBuyUSD - totalSellUSD,
+			"unique_wallets": len(walMap),
+			"unique_markets": len(mktMap),
+		},
+	})
+}
+
+// handleSmartMoneyAnalysis aggregates confirmed smart money trades from the
+// last N hours (default 48) and returns per-market and per-wallet summaries.
+func (s *Server) handleSmartMoneyAnalysis(c *gin.Context) {
+	if s.smUserSvc == nil || s.smTradeSvc == nil {
+		c.JSON(http.StatusOK, gin.H{
+			"wallets":  []any{},
+			"markets":  []any{},
+			"trades":   []repository.SmartMoneyTrade{},
+			"summary":  gin.H{},
+		})
+		return
+	}
+	ctx := c.Request.Context()
+	hours := queryInt(c, "hours", 24)
+	sinceTS := time.Now().Add(-time.Duration(hours) * time.Hour).Unix()
+
+	// Get confirmed users
+	confirmed, err := s.smUserSvc.GetConfirmed(ctx)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	if len(confirmed) == 0 {
+		c.JSON(http.StatusOK, gin.H{
+			"wallets":  []any{},
+			"markets":  []any{},
+			"trades":   []repository.SmartMoneyTrade{},
+			"summary":  gin.H{},
+		})
+		return
+	}
+
+	// Build name map & address list
+	type smNames struct {
+		Name      string
+		Pseudonym string
+		Alias     string
+	}
+	nameMap := make(map[string]smNames, len(confirmed))
+	addrs := make([]string, 0, len(confirmed))
+	for _, u := range confirmed {
+		nameMap[u.Address] = smNames{Name: u.Name, Pseudonym: u.Pseudonym, Alias: u.Alias}
+		addrs = append(addrs, u.Address)
+	}
+
+	// Fetch all trades since cutoff
+	trades, err := s.smTradeSvc.RecentSince(ctx, addrs, sinceTS)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	// Enrich profile names
+	for i := range trades {
+		if sn, ok := nameMap[trades[i].ProxyWallet]; ok {
+			if dn := resolveDisplayName(sn.Name, sn.Pseudonym, sn.Alias); dn != "" {
+				trades[i].ProfileName = dn
+			}
+		}
+	}
+
+	// --- Aggregate per market (condition_id + outcome) ---
+	type marketKey struct {
+		ConditionID string
+		Outcome     string
+	}
+	type marketAgg struct {
+		Title       string   `json:"title"`
+		Slug        string   `json:"slug"`
+		EventSlug   string   `json:"event_slug,omitempty"`
+		ConditionID string   `json:"condition_id"`
+		Outcome     string   `json:"outcome"`
+		BuyCount    int      `json:"buy_count"`
+		SellCount   int      `json:"sell_count"`
+		BuyUSD      float64  `json:"buy_usd"`
+		SellUSD     float64  `json:"sell_usd"`
+		NetUSD      float64  `json:"net_usd"`
+		AvgPrice    float64  `json:"avg_price"`
+		TotalSize   float64  `json:"total_size"`
+		Wallets     []string `json:"wallets"`
+		walletSet   map[string]struct{}
+	}
+	mktMap := make(map[marketKey]*marketAgg)
+
+	// --- Aggregate per wallet ---
+	type walletAgg struct {
+		Address     string  `json:"address"`
+		DisplayName string  `json:"display_name"`
+		BuyCount    int     `json:"buy_count"`
+		SellCount   int     `json:"sell_count"`
+		BuyUSD      float64 `json:"buy_usd"`
+		SellUSD     float64 `json:"sell_usd"`
+		NetUSD      float64 `json:"net_usd"`
+		Markets     int     `json:"markets"`
+		marketSet   map[string]struct{}
+	}
+	walMap := make(map[string]*walletAgg)
+
+	var totalBuyUSD, totalSellUSD float64
+	var totalBuys, totalSells int
+
+	for _, t := range trades {
+		// Market aggregation
+		mk := marketKey{t.ConditionID, t.Outcome}
+		ma := mktMap[mk]
+		if ma == nil {
+			ma = &marketAgg{
+				Title:       t.Title,
+				Slug:        t.Slug,
+				EventSlug:   t.EventSlug,
+				ConditionID: t.ConditionID,
+				Outcome:     t.Outcome,
+				walletSet:   make(map[string]struct{}),
+			}
+			mktMap[mk] = ma
+		}
+		isBuy := strings.EqualFold(t.Side, "BUY")
+		if isBuy {
+			ma.BuyCount++
+			ma.BuyUSD += t.USDValue
+			totalBuys++
+			totalBuyUSD += t.USDValue
+		} else {
+			ma.SellCount++
+			ma.SellUSD += t.USDValue
+			totalSells++
+			totalSellUSD += t.USDValue
+		}
+		ma.TotalSize += t.Size
+		ma.walletSet[t.ProxyWallet] = struct{}{}
+
+		// Wallet aggregation
+		wa := walMap[t.ProxyWallet]
+		if wa == nil {
+			dn := t.ProxyWallet
+			if sn, ok := nameMap[t.ProxyWallet]; ok {
+				if resolved := resolveDisplayName(sn.Name, sn.Pseudonym, sn.Alias); resolved != "" {
+					dn = resolved
+				}
+			}
+			wa = &walletAgg{
+				Address:     t.ProxyWallet,
+				DisplayName: dn,
+				marketSet:   make(map[string]struct{}),
+			}
+			walMap[t.ProxyWallet] = wa
+		}
+		if isBuy {
+			wa.BuyCount++
+			wa.BuyUSD += t.USDValue
+		} else {
+			wa.SellCount++
+			wa.SellUSD += t.USDValue
+		}
+		wa.marketSet[t.ConditionID] = struct{}{}
+	}
+
+	// Finalize market aggregates
+	markets := make([]marketAgg, 0, len(mktMap))
+	for _, ma := range mktMap {
+		ma.NetUSD = ma.BuyUSD - ma.SellUSD
+		if ma.TotalSize > 0 {
+			ma.AvgPrice = (ma.BuyUSD + ma.SellUSD) / ma.TotalSize
+		}
+		ma.Wallets = make([]string, 0, len(ma.walletSet))
+		for w := range ma.walletSet {
+			if sn, ok := nameMap[w]; ok {
+				if dn := resolveDisplayName(sn.Name, sn.Pseudonym, sn.Alias); dn != "" {
+					ma.Wallets = append(ma.Wallets, dn)
+					continue
+				}
+			}
+			ma.Wallets = append(ma.Wallets, w)
+		}
+		markets = append(markets, *ma)
+	}
+
+	// Sort markets by net USD descending (largest net buy first)
+	for i := 0; i < len(markets); i++ {
+		for j := i + 1; j < len(markets); j++ {
+			absI := markets[i].NetUSD
+			if absI < 0 {
+				absI = -absI
+			}
+			absJ := markets[j].NetUSD
+			if absJ < 0 {
+				absJ = -absJ
+			}
+			if absJ > absI {
+				markets[i], markets[j] = markets[j], markets[i]
+			}
+		}
+	}
+
+	// Finalize wallet aggregates
+	wallets := make([]walletAgg, 0, len(walMap))
+	for _, wa := range walMap {
+		wa.NetUSD = wa.BuyUSD - wa.SellUSD
+		wa.Markets = len(wa.marketSet)
+		wallets = append(wallets, *wa)
+	}
+
+	// Sort wallets by total volume descending
+	for i := 0; i < len(wallets); i++ {
+		for j := i + 1; j < len(wallets); j++ {
+			volI := wallets[i].BuyUSD + wallets[i].SellUSD
+			volJ := wallets[j].BuyUSD + wallets[j].SellUSD
+			if volJ > volI {
+				wallets[i], wallets[j] = wallets[j], wallets[i]
+			}
+		}
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"wallets": wallets,
+		"markets": markets,
+		"trades":  trades,
+		"summary": gin.H{
+			"hours":          hours,
+			"total_trades":   len(trades),
+			"total_buys":     totalBuys,
+			"total_sells":    totalSells,
+			"total_buy_usd":  totalBuyUSD,
+			"total_sell_usd": totalSellUSD,
+			"net_usd":        totalBuyUSD - totalSellUSD,
+			"unique_wallets": len(walMap),
+			"unique_markets": len(mktMap),
+		},
+	})
 }
 
 func (s *Server) handleAddSmartMoney(c *gin.Context) {
@@ -812,7 +1277,7 @@ func (s *Server) handleDeleteSmartMoney(c *gin.Context) {
 }
 
 func (s *Server) handleUpdateSmartMoneyStatus(c *gin.Context) {
-	if s.smUserStore == nil {
+	if s.smUserSvc == nil {
 		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "smart money not enabled"})
 		return
 	}
@@ -825,11 +1290,11 @@ func (s *Server) handleUpdateSmartMoneyStatus(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "status is required"})
 		return
 	}
-	if req.Status != store.SMStatusCandidate && req.Status != store.SMStatusConfirmed && req.Status != store.SMStatusRejected {
+	if req.Status != repository.SMStatusCandidate && req.Status != repository.SMStatusConfirmed && req.Status != repository.SMStatusRejected {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid status, must be candidate/confirmed/rejected"})
 		return
 	}
-	if err := s.smUserStore.UpdateStatus(ctx, address, req.Status); err != nil {
+	if err := s.smUserSvc.UpdateStatus(ctx, address, req.Status); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
@@ -838,7 +1303,7 @@ func (s *Server) handleUpdateSmartMoneyStatus(c *gin.Context) {
 }
 
 func (s *Server) handleUpdateSmartMoneyAlias(c *gin.Context) {
-	if s.smUserStore == nil {
+	if s.smUserSvc == nil {
 		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "smart money not enabled"})
 		return
 	}
@@ -852,7 +1317,7 @@ func (s *Server) handleUpdateSmartMoneyAlias(c *gin.Context) {
 		return
 	}
 	req.Alias = strings.TrimSpace(req.Alias)
-	if err := s.smUserStore.UpdateAlias(ctx, address, req.Alias); err != nil {
+	if err := s.smUserSvc.UpdateAlias(ctx, address, req.Alias); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
@@ -861,10 +1326,10 @@ func (s *Server) handleUpdateSmartMoneyAlias(c *gin.Context) {
 }
 
 // PublishSmartMoneyTrade sends a new smart money trade to SSE clients.
-func (s *Server) PublishSmartMoneyTrade(t store.SmartMoneyTrade) {
+func (s *Server) PublishSmartMoneyTrade(t repository.SmartMoneyTrade) {
 	// Always enrich with consistent display name format
-	if t.ProxyWallet != "" && s.smUserStore != nil {
-		if u, err := s.smUserStore.GetByAddress(context.Background(), t.ProxyWallet); err == nil && u != nil {
+	if t.ProxyWallet != "" && s.smUserSvc != nil {
+		if u, err := s.smUserSvc.GetByAddress(context.Background(), t.ProxyWallet); err == nil && u != nil {
 			if dn := resolveDisplayName(u.Name, u.Pseudonym, u.Alias); dn != "" {
 				t.ProfileName = dn
 			}
@@ -956,12 +1421,12 @@ func FormatMarketResp(m *types.MarketInfo) NewMarketResp {
 }
 
 // PublishTrade sends a new trade to SSE clients.
-func (s *Server) PublishTrade(t store.TradeRecord) {
+func (s *Server) PublishTrade(t repository.TradeRecord) {
 	s.PublishEvent("trade", t)
 }
 
 // PublishSettlement sends a new settlement to SSE clients.
-func (s *Server) PublishSettlement(r store.SettlementRecord) {
+func (s *Server) PublishSettlement(r repository.SettlementRecord) {
 	s.PublishEvent("settlement", r)
 }
 

@@ -10,7 +10,8 @@ import (
 	"time"
 
 	"github.com/mkfoyw/polyscan/internal/config"
-	"github.com/mkfoyw/polyscan/internal/store"
+	"github.com/mkfoyw/polyscan/internal/repository"
+	"github.com/mkfoyw/polyscan/internal/services"
 	"github.com/mkfoyw/polyscan/internal/types"
 )
 
@@ -20,7 +21,7 @@ const dataAPI = "https://data-api.polymarket.com"
 // their trading history to confirm or reject them.
 type Scanner struct {
 	cfg       config.SmartMoneyConfig
-	userStore *store.SmartMoneyUserStore
+	userSvc *services.SmartMoneyUserService
 	client    *http.Client
 	logger    *slog.Logger
 
@@ -38,10 +39,10 @@ type candidateReq struct {
 }
 
 // NewScanner creates a new smart money scanner.
-func NewScanner(cfg config.SmartMoneyConfig, userStore *store.SmartMoneyUserStore, logger *slog.Logger) *Scanner {
+func NewScanner(cfg config.SmartMoneyConfig, userSvc *services.SmartMoneyUserService, logger *slog.Logger) *Scanner {
 	return &Scanner{
 		cfg:         cfg,
-		userStore:   userStore,
+		userSvc:     userSvc,
 		client:      &http.Client{Timeout: 15 * time.Second},
 		logger:      logger,
 		candidateCh: make(chan candidateReq, 200),
@@ -61,7 +62,7 @@ func (s *Scanner) AddCandidate(ctx context.Context, proxyWallet string, usdValue
 	}
 
 	// Check if already tracked
-	exists, err := s.userStore.Exists(ctx, proxyWallet)
+	exists, err := s.userSvc.Exists(ctx, proxyWallet)
 	if err != nil {
 		s.logger.Error("failed to check smart money existence", "address", proxyWallet, "error", err)
 		return
@@ -71,13 +72,13 @@ func (s *Scanner) AddCandidate(ctx context.Context, proxyWallet string, usdValue
 	}
 
 	// Insert as candidate
-	rec := &store.SmartMoneyUser{
+	rec := &repository.SmartMoneyUser{
 		Address:     proxyWallet,
 		Source:      "auto",
-		Status:      store.SMStatusCandidate,
+		Status:      repository.SMStatusCandidate,
 		FirstSeenAt: time.Now(),
 	}
-	if err := s.userStore.Upsert(ctx, rec); err != nil {
+	if err := s.userSvc.Upsert(ctx, rec); err != nil {
 		s.logger.Error("failed to insert smart money candidate", "address", proxyWallet, "error", err)
 		return
 	}
@@ -98,14 +99,14 @@ func (s *Scanner) AddCandidate(ctx context.Context, proxyWallet string, usdValue
 
 // AddManual adds a manual smart money address (bypasses analysis, immediately confirmed).
 func (s *Scanner) AddManual(ctx context.Context, address, alias string) error {
-	rec := &store.SmartMoneyUser{
+	rec := &repository.SmartMoneyUser{
 		Address:     address,
 		Alias:       alias,
 		Source:      "manual",
-		Status:      store.SMStatusConfirmed,
+		Status:      repository.SMStatusConfirmed,
 		FirstSeenAt: time.Now(),
 	}
-	if err := s.userStore.Upsert(ctx, rec); err != nil {
+	if err := s.userSvc.Upsert(ctx, rec); err != nil {
 		return fmt.Errorf("add manual smart money: %w", err)
 	}
 
@@ -115,7 +116,7 @@ func (s *Scanner) AddManual(ctx context.Context, address, alias string) error {
 			lookupCtx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 			defer cancel()
 			if name := s.ProfileLookup(lookupCtx, address); name != "" {
-				_ = s.userStore.UpdateProfile(lookupCtx, address, name, "")
+				_ = s.userSvc.UpdateProfile(lookupCtx, address, name, "")
 			}
 		}()
 	}
@@ -160,7 +161,7 @@ func (s *Scanner) analyze(ctx context.Context, req candidateReq) {
 
 	if len(activities) == 0 {
 		s.logger.Info("no activity found, rejecting candidate", "address", req.address)
-		_ = s.userStore.UpdateStatus(ctx, req.address, store.SMStatusRejected)
+		_ = s.userSvc.UpdateStatus(ctx, req.address, repository.SMStatusRejected)
 		return
 	}
 
@@ -168,7 +169,7 @@ func (s *Scanner) analyze(ctx context.Context, req candidateReq) {
 	stats := s.computeStats(activities)
 
 	// Update stats in DB (use rawTradeCount for actual trade count)
-	_ = s.userStore.UpdateStats(ctx, req.address,
+	_ = s.userSvc.UpdateStats(ctx, req.address,
 		stats.winRate, stats.roi,
 		stats.rawTradeCount, stats.winningTrades, stats.totalVolume,
 	)
@@ -176,14 +177,14 @@ func (s *Scanner) analyze(ctx context.Context, req candidateReq) {
 	// Resolve profile name
 	if s.ProfileLookup != nil {
 		if name := s.ProfileLookup(ctx, req.address); name != "" {
-			_ = s.userStore.UpdateProfile(ctx, req.address, name, "")
+			_ = s.userSvc.UpdateProfile(ctx, req.address, name, "")
 		}
 	}
 
 	// Also try to pick up name from activity data
 	for _, act := range activities {
 		if act.Name != "" || act.Pseudonym != "" {
-			_ = s.userStore.UpdateProfile(ctx, req.address, act.Name, act.Pseudonym)
+			_ = s.userSvc.UpdateProfile(ctx, req.address, act.Name, act.Pseudonym)
 			break
 		}
 	}
@@ -196,7 +197,7 @@ func (s *Scanner) analyze(ctx context.Context, req candidateReq) {
 
 	if tooManyTrades {
 		// Exceeds max trades — permanently rejected
-		_ = s.userStore.UpdateStatus(ctx, req.address, store.SMStatusRejected)
+		_ = s.userSvc.UpdateStatus(ctx, req.address, repository.SMStatusRejected)
 		s.logger.Info("smart money rejected: too many trades",
 			"address", req.address,
 			"raw_trades", stats.rawTradeCount,
@@ -208,14 +209,14 @@ func (s *Scanner) analyze(ctx context.Context, req candidateReq) {
 
 	if meetsMinBuy {
 		// Few trades + large buy amount → confirmed
-		confirmed, _ := s.userStore.CountByStatus(ctx, store.SMStatusConfirmed)
+		confirmed, _ := s.userSvc.CountByStatus(ctx, repository.SMStatusConfirmed)
 		if s.cfg.MaxTracked > 0 && int(confirmed) >= s.cfg.MaxTracked {
 			s.logger.Warn("max smart money tracked reached, rejecting", "address", req.address)
-			_ = s.userStore.UpdateStatus(ctx, req.address, store.SMStatusRejected)
+			_ = s.userSvc.UpdateStatus(ctx, req.address, repository.SMStatusRejected)
 			return
 		}
 
-		_ = s.userStore.UpdateStatus(ctx, req.address, store.SMStatusConfirmed)
+		_ = s.userSvc.UpdateStatus(ctx, req.address, repository.SMStatusConfirmed)
 		s.logger.Info("smart money confirmed",
 			"address", req.address,
 			"raw_trades", stats.rawTradeCount,
@@ -225,7 +226,7 @@ func (s *Scanner) analyze(ctx context.Context, req candidateReq) {
 		)
 	} else {
 		// Few trades but buy amount not enough yet — reject (may re-qualify later)
-		_ = s.userStore.UpdateStatus(ctx, req.address, store.SMStatusRejected)
+		_ = s.userSvc.UpdateStatus(ctx, req.address, repository.SMStatusRejected)
 		s.logger.Info("smart money rejected: insufficient buy amount",
 			"address", req.address,
 			"raw_trades", stats.rawTradeCount,
@@ -367,15 +368,15 @@ func (s *Scanner) fetchActivityHistory(ctx context.Context, address string, limi
 
 // Remove deletes a smart money user by address.
 func (s *Scanner) Remove(ctx context.Context, address string) error {
-	return s.userStore.Delete(ctx, address)
+	return s.userSvc.Delete(ctx, address)
 }
 
 // GetAll returns all smart money users.
-func (s *Scanner) GetAll(ctx context.Context) ([]store.SmartMoneyUser, error) {
-	return s.userStore.GetAll(ctx)
+func (s *Scanner) GetAll(ctx context.Context) ([]repository.SmartMoneyUser, error) {
+	return s.userSvc.GetAll(ctx)
 }
 
 // GetConfirmed returns all confirmed smart money users.
-func (s *Scanner) GetConfirmed(ctx context.Context) ([]store.SmartMoneyUser, error) {
-	return s.userStore.GetConfirmed(ctx)
+func (s *Scanner) GetConfirmed(ctx context.Context) ([]repository.SmartMoneyUser, error) {
+	return s.userSvc.GetConfirmed(ctx)
 }

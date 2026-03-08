@@ -18,8 +18,10 @@ import (
 	"github.com/mkfoyw/polyscan/internal/notify"
 	"github.com/mkfoyw/polyscan/internal/poller"
 	"github.com/mkfoyw/polyscan/internal/profile"
+	"github.com/mkfoyw/polyscan/internal/repository"
+	sqlitedb "github.com/mkfoyw/polyscan/internal/repository/sqlite"
+	"github.com/mkfoyw/polyscan/internal/services"
 	"github.com/mkfoyw/polyscan/internal/smartmoney"
-	"github.com/mkfoyw/polyscan/internal/store"
 	"github.com/mkfoyw/polyscan/internal/types"
 	"github.com/mkfoyw/polyscan/internal/whale"
 	"github.com/mkfoyw/polyscan/internal/ws"
@@ -70,7 +72,7 @@ func main() {
 	alertCh := make(chan types.Alert, 200)
 
 	// --- Initialize SQLite ---
-	db, err := store.NewDB(ctx, cfg.SQLitePath, logger)
+	db, err := sqlitedb.NewDB(ctx, cfg.SQLitePath, logger)
 	if err != nil {
 		logger.Error("failed to open SQLite", "error", err)
 		os.Exit(1)
@@ -82,13 +84,13 @@ func main() {
 	}
 	logger.Info("SQLite ready", "path", cfg.SQLitePath)
 
-	tradeStore := db.Trades()
-	alertStore := db.Alerts()
-	whaleStore := db.Whales()
-	whaleTradStore := db.WhaleTrades()
-	profileStore := db.Profiles()
-	priceEventStore := db.PriceEvents()
-	settlementStore := db.Settlements()
+	tradeSvc := services.NewTradeService(db.Trades())
+	alertSvc := services.NewAlertService(db.Alerts())
+	whaleSvc := services.NewWhaleService(db.Whales())
+	whaleTradeSvc := services.NewWhaleTradeService(db.WhaleTrades())
+	profileSvc := services.NewProfileService(db.Profiles())
+	priceSvc := services.NewPriceEventService(db.PriceEvents())
+	settlementSvc := services.NewSettlementService(db.Settlements())
 
 	// --- Initialize components ---
 
@@ -102,25 +104,25 @@ func main() {
 	wsClient := ws.NewClient(logger)
 
 	// 4. Market discovery
-	discovery := market.NewDiscovery(mktStore, settlementStore, cfg.MarketSyncInterval.Duration, cfg.WatchSeries, logger)
+	discovery := market.NewDiscovery(mktStore, settlementSvc, cfg.MarketSyncInterval.Duration, cfg.WatchSeries, logger)
 	discovery.OnNewMarkets = func(assetIDs []string) {
 		logger.Info("subscribing to new markets via WebSocket", "count", len(assetIDs))
 		wsClient.Subscribe(assetIDs)
 	}
 
 	// 5. Large trade monitor
-	largeTradeMon := monitor.NewLargeTrade(cfg.LargeTradeThreshold, cfg.LargeTradeMaxPrice, mktStore, tradeStore, alertCh, nil, logger)
+	largeTradeMon := monitor.NewLargeTrade(cfg.LargeTradeThreshold, cfg.LargeTradeMaxPrice, mktStore, tradeSvc, alertCh, nil, logger)
 
 	// 5b. Profile client — resolves wallet addresses to Polymarket usernames
 	//     Uses the profiles table as a persistent cache; only calls external API when stale (24h).
-	profileClient := profile.NewClient(logger, profileStore, 24*time.Hour)
+	profileClient := profile.NewClient(logger, profileSvc, 24*time.Hour)
 	largeTradeMon.ProfileLookup = profileClient.Lookup
 
 	// 6. Price spike monitor
 	priceSpikeMon := monitor.NewPriceSpike(
 		cfg.PriceSpikeRules,
 		cfg.Whale.Cooldown.Duration, // reuse cooldown for price alerts too
-		mktStore, priceEventStore, alertCh, logger,
+		mktStore, priceSvc, alertCh, logger,
 	)
 
 	// 7. Trade poller (REST backup)
@@ -133,7 +135,7 @@ func main() {
 	}
 
 	// 8. Whale tracker
-	whaleTracker := whale.NewTracker(cfg.Whale.MaxTracked, whaleStore, logger)
+	whaleTracker := whale.NewTracker(cfg.Whale.MaxTracked, whaleSvc, logger)
 	if err := whaleTracker.Load(ctx); err != nil {
 		logger.Error("failed to load whale data from SQLite", "error", err)
 	}
@@ -174,17 +176,17 @@ func main() {
 	}
 
 	// 9. Whale poller
-	whalePoller := poller.NewWhalePoller(whaleTracker, whaleTradStore, cfg.Whale.PollInterval.Duration, cfg.Whale.MinDisplayAmount, alertCh, logger)
+	whalePoller := poller.NewWhalePoller(whaleTracker, whaleTradeSvc, cfg.Whale.PollInterval.Duration, cfg.Whale.MinDisplayAmount, alertCh, logger)
 	whalePoller.ProfileLookup = profileClient.Lookup
 
 	// 10. Smart money system (optional — controlled by config)
 	var smPoller *poller.SmartMoneyPoller
-	var smUserStore *store.SmartMoneyUserStore
-	var smTradeStore *store.SmartMoneyTradeStore
-	var smDB *store.SmartMoneyDB
+	var smUserSvc *services.SmartMoneyUserService
+	var smTradeSvc *services.SmartMoneyTradeService
+	var smDB *sqlitedb.SmartMoneyDB
 
 	if cfg.SmartMoney.Enabled {
-		smDB, err = store.NewSmartMoneyDB(ctx, cfg.SmartMoney.SQLitePath, logger)
+		smDB, err = sqlitedb.NewSmartMoneyDB(ctx, cfg.SmartMoney.SQLitePath, logger)
 		if err != nil {
 			logger.Error("failed to open SmartMoney SQLite", "error", err)
 			os.Exit(1)
@@ -194,14 +196,14 @@ func main() {
 			logger.Error("failed to ensure SmartMoney schema", "error", err)
 			os.Exit(1)
 		}
-		smUserStore = smDB.Users()
-		smTradeStore = smDB.Trades()
+		smUserSvc = services.NewSmartMoneyUserService(smDB.Users())
+		smTradeSvc = services.NewSmartMoneyTradeService(smDB.Trades())
 
-		smScanner = smartmoney.NewScanner(cfg.SmartMoney, smUserStore, logger)
+		smScanner = smartmoney.NewScanner(cfg.SmartMoney, smUserSvc, logger)
 		smScanner.ProfileLookup = profileClient.Lookup
 
 		smPoller = poller.NewSmartMoneyPoller(
-			smUserStore, smTradeStore,
+			smUserSvc, smTradeSvc,
 			cfg.SmartMoney.PollInterval.Duration,
 			cfg.SmartMoney.MinDisplayAmount,
 			alertCh, logger,
@@ -235,12 +237,12 @@ func main() {
 					return
 				}
 				// Persist alert to SQLite
-				if alertStore != nil {
-					rec := &store.AlertRecord{
+				if alertSvc != nil {
+					rec := &repository.AlertRecord{
 						Type:    alert.Type.String(),
 						Message: alert.Message,
 					}
-					if err := alertStore.Insert(ctx, rec); err != nil {
+					if err := alertSvc.Insert(ctx, rec); err != nil {
 						logger.Error("failed to persist alert", "error", err)
 					}
 				}
@@ -329,17 +331,17 @@ func main() {
 				// Trades & Alerts — long retention
 				if ret.TradesDays > 0 {
 					cutoff := time.Now().AddDate(0, 0, -ret.TradesDays)
-					if n, err := tradeStore.DeleteOlderThan(ctx, cutoff); err != nil {
+					if n, err := tradeSvc.DeleteOlderThan(ctx, cutoff); err != nil {
 						logger.Error("cleanup trades failed", "error", err)
 					} else if n > 0 {
 						logger.Info("pruned old trades", "deleted", n)
 					}
-					if n, err := whaleTradStore.DeleteOlderThan(ctx, cutoff); err != nil {
+					if n, err := whaleTradeSvc.DeleteOlderThan(ctx, cutoff); err != nil {
 						logger.Error("cleanup whale_trades failed", "error", err)
 					} else if n > 0 {
 						logger.Info("pruned old whale trades", "deleted", n)
 					}
-					if n, err := alertStore.DeleteOlderThan(ctx, cutoff); err != nil {
+					if n, err := alertSvc.DeleteOlderThan(ctx, cutoff); err != nil {
 						logger.Error("cleanup alerts failed", "error", err)
 					} else if n > 0 {
 						logger.Info("pruned old alerts", "deleted", n)
@@ -352,7 +354,7 @@ func main() {
 					if n := mktStore.PruneOlderThan(cutoff); n > 0 {
 						logger.Info("pruned old markets (in-memory)", "deleted", n)
 					}
-					if n, err := settlementStore.DeleteOlderThan(ctx, cutoff); err != nil {
+					if n, err := settlementSvc.DeleteOlderThan(ctx, cutoff); err != nil {
 						logger.Error("cleanup settlements failed", "error", err)
 					} else if n > 0 {
 						logger.Info("pruned old settlements", "deleted", n)
@@ -362,7 +364,7 @@ func main() {
 				// Price events
 				if ret.PriceEventsDays > 0 {
 					cutoff := time.Now().AddDate(0, 0, -ret.PriceEventsDays)
-					if n, err := priceEventStore.DeleteOlderThan(ctx, cutoff); err != nil {
+					if n, err := priceSvc.DeleteOlderThan(ctx, cutoff); err != nil {
 						logger.Error("cleanup price_events failed", "error", err)
 					} else if n > 0 {
 						logger.Info("pruned old price events", "deleted", n)
@@ -370,9 +372,9 @@ func main() {
 				}
 
 				// Smart money trades
-				if ret.SmartMoneyDays > 0 && smTradeStore != nil {
+				if ret.SmartMoneyDays > 0 && smTradeSvc != nil {
 					cutoff := time.Now().AddDate(0, 0, -ret.SmartMoneyDays)
-					if n, err := smTradeStore.DeleteOlderThan(ctx, cutoff); err != nil {
+					if n, err := smTradeSvc.DeleteOlderThan(ctx, cutoff); err != nil {
 						logger.Error("cleanup smart_money_trades failed", "error", err)
 					} else if n > 0 {
 						logger.Info("pruned old smart money trades", "deleted", n)
@@ -395,14 +397,14 @@ func main() {
 			cfg.API.Addr,
 			cfg.API.AdminTokens,
 			mktStore,
-			tradeStore,
-			alertStore,
-			whaleStore,
-			whaleTradStore,
-			priceEventStore,
-			settlementStore,
-			smUserStore,
-			smTradeStore,
+			tradeSvc,
+			alertSvc,
+			whaleSvc,
+			whaleTradeSvc,
+			priceSvc,
+			settlementSvc,
+			smUserSvc,
+			smTradeSvc,
 			whaleTracker,
 			priceSpikeMon.TopMovers,
 			broker,
@@ -414,12 +416,12 @@ func main() {
 		}
 
 		// Wire SSE events: new trades
-		largeTradeMon.OnTradeStored = func(rec store.TradeRecord) {
+		largeTradeMon.OnTradeStored = func(rec repository.TradeRecord) {
 			apiServer.PublishTrade(rec)
 		}
 
 		// Wire SSE events: new settlements
-		discovery.OnNewSettlement = func(rec store.SettlementRecord) {
+		discovery.OnNewSettlement = func(rec repository.SettlementRecord) {
 			apiServer.PublishSettlement(rec)
 		}
 
@@ -437,7 +439,7 @@ func main() {
 				logger.Info("pushover notifications enabled for smart money trades")
 			}
 
-			smPoller.OnTradeStored = func(rec store.SmartMoneyTrade) {
+			smPoller.OnTradeStored = func(rec repository.SmartMoneyTrade) {
 				apiServer.PublishSmartMoneyTrade(rec)
 				if pushoverNotifier != nil {
 					go pushoverNotifier.SendSmartMoneyTrade(rec)

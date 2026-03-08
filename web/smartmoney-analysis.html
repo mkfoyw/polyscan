@@ -1,0 +1,343 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PolyScan — 聪明钱交易分析</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+:root{--bg:#0d1117;--bg2:#161b22;--bg3:#1c2128;--border:#21262d;--border2:#30363d;--text:#c9d1d9;--text2:#8b949e;--text3:#484f58;--white:#e6edf3;--blue:#58a6ff;--green:#3fb950;--red:#f85149;--purple:#a78bfa;--yellow:#d29922;--orange:#d18616}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:var(--bg);color:var(--text);height:100vh;overflow:hidden;display:flex;flex-direction:column}
+a{color:var(--blue);text-decoration:none}a:hover{text-decoration:underline}
+::-webkit-scrollbar{width:6px}
+::-webkit-scrollbar-track{background:transparent}
+::-webkit-scrollbar-thumb{background:var(--border2);border-radius:3px}
+
+/* Topbar */
+.topbar{display:flex;align-items:center;gap:12px;padding:8px 20px;background:var(--bg2);border-bottom:1px solid var(--border2);flex-shrink:0;z-index:10}
+.topbar h1{font-size:16px;color:var(--white)}
+.topbar .actions{margin-left:auto;display:flex;gap:8px;align-items:center}
+.topbar .back{font-size:12px;color:var(--text2)}.topbar .back:hover{color:var(--blue)}
+.btn-topbar{padding:4px 12px;border-radius:6px;border:1px solid var(--border2);background:transparent;color:var(--text2);font-size:11px;cursor:pointer;transition:all .15s}
+.btn-topbar:hover{border-color:var(--blue);color:var(--blue)}
+.btn-topbar.active{border-color:var(--blue);color:var(--blue);background:rgba(88,166,255,.08)}
+
+/* Summary cards */
+.summary-bar{display:flex;gap:10px;padding:12px 20px;background:var(--bg2);border-bottom:1px solid var(--border2);flex-wrap:wrap;flex-shrink:0}
+.summary-card{flex:1;min-width:120px;padding:10px 14px;background:var(--bg3);border:1px solid var(--border);border-radius:10px}
+.summary-card .label{font-size:11px;color:var(--text2);margin-bottom:4px}
+.summary-card .value{font-size:18px;font-weight:700;color:var(--white)}
+.summary-card .value.buy{color:var(--green)}
+.summary-card .value.sell{color:var(--red)}
+.summary-card .value.net-pos{color:var(--green)}
+.summary-card .value.net-neg{color:var(--red)}
+.summary-card .sub{font-size:10px;color:var(--text3);margin-top:2px}
+
+/* Tab bar */
+.tab-bar{display:flex;gap:0;padding:0 20px;background:var(--bg2);border-bottom:1px solid var(--border2);flex-shrink:0}
+.tab-btn{padding:10px 18px;border:none;background:transparent;color:var(--text2);font-size:13px;cursor:pointer;border-bottom:2px solid transparent;transition:all .15s}
+.tab-btn:hover{color:var(--white)}
+.tab-btn.active{color:var(--blue);border-bottom-color:var(--blue)}
+
+/* Content */
+.content{flex:1;overflow-y:auto;padding:16px 20px}
+.tab-content{display:none}
+.tab-content.active{display:grid;grid-template-columns:repeat(auto-fill,minmax(420px,1fr));gap:8px;align-content:start}
+
+/* Market cards */
+.market-card{padding:14px 16px;background:var(--bg2);border:1px solid var(--border);border-radius:10px;transition:all .15s}
+.market-card:hover{border-color:var(--border2);background:var(--bg3)}
+.market-header{display:flex;align-items:flex-start;gap:10px;margin-bottom:8px}
+.market-title{font-size:13px;font-weight:600;color:var(--white);flex:1;line-height:1.4}
+.market-title a{color:inherit}.market-title a:hover{color:var(--blue)}
+.market-outcome{font-size:11px;padding:2px 8px;border-radius:8px;background:rgba(88,166,255,.1);color:var(--blue);white-space:nowrap}
+.market-stats{display:flex;gap:20px;flex-wrap:wrap;margin-bottom:6px}
+.market-stat{font-size:13px;color:var(--text2)}
+.market-stat .val{font-weight:700;font-size:15px;color:var(--white)}
+.market-stat .val.buy{color:var(--green)}
+.market-stat .val.sell{color:var(--red)}
+.market-stat .val.net-pos{color:var(--green)}
+.market-stat .val.net-neg{color:var(--red)}
+.market-wallets{display:flex;gap:4px;flex-wrap:wrap;margin-top:6px}
+.wallet-pill{font-size:10px;padding:2px 8px;border-radius:10px;background:rgba(167,139,250,.1);color:var(--purple);border:1px solid rgba(167,139,250,.15)}
+.market-bar{height:4px;border-radius:2px;background:var(--border);margin-top:8px;overflow:hidden;display:flex}
+.market-bar .buy-bar{background:var(--green);height:100%}
+.market-bar .sell-bar{background:var(--red);height:100%}
+
+/* Wallet cards */
+.wallet-card{display:flex;align-items:center;gap:14px;padding:14px 16px;background:var(--bg2);border:1px solid var(--border);border-radius:10px;transition:all .15s;text-decoration:none;color:inherit;cursor:pointer}
+.wallet-card:hover{border-color:var(--border2);background:var(--bg3);text-decoration:none}
+.wallet-avatar{width:36px;height:36px;border-radius:50%;background:linear-gradient(135deg,#1a2332,#243044);display:flex;align-items:center;justify-content:center;font-size:14px;border:1px solid var(--border2);flex-shrink:0}
+.wallet-info{flex:1;min-width:0}
+.wallet-name{font-size:13px;font-weight:600;color:var(--white)}
+.wallet-addr{font-size:10px;color:var(--text3);margin-top:1px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.wallet-stats{display:flex;gap:12px;flex-wrap:wrap;margin-top:4px}
+.wallet-stat{font-size:11px;color:var(--text2)}
+.wallet-stat .val{font-weight:600;color:var(--white)}
+.wallet-stat .val.buy{color:var(--green)}
+.wallet-stat .val.sell{color:var(--red)}
+.wallet-stat .val.net-pos{color:var(--green)}
+.wallet-stat .val.net-neg{color:var(--red)}
+
+/* Trade list */
+.trade-row{display:flex;align-items:center;gap:10px;padding:10px 14px;background:var(--bg2);border:1px solid var(--border);border-radius:8px;font-size:12px;transition:all .15s}
+.trade-row:hover{border-color:var(--border2);background:var(--bg3)}
+.trade-side{width:32px;text-align:center;font-weight:700;font-size:11px;padding:2px 0;border-radius:4px}
+.trade-side.buy{background:rgba(63,185,80,.12);color:var(--green)}
+.trade-side.sell{background:rgba(248,81,73,.12);color:var(--red)}
+.trade-market{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--white)}
+.trade-outcome{font-size:10px;color:var(--blue);width:50px;text-align:center;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.trade-usd{width:80px;text-align:right;font-weight:600;color:var(--white)}
+.trade-price{width:52px;text-align:right;color:var(--text2)}
+.trade-wallet{width:80px;text-align:right;color:var(--purple);font-size:11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.trade-time{width:60px;text-align:right;color:var(--text3);font-size:10px}
+
+/* Empty state */
+.empty-state{text-align:center;padding:60px 20px;grid-column:1/-1}
+.empty-icon{font-size:48px;margin-bottom:10px;opacity:.4}
+.empty-title{font-size:14px;color:var(--text2)}
+
+/* Volume bar mini-chart */
+.vol-bar-wrap{display:flex;align-items:flex-end;gap:1px;height:20px;margin-top:4px}
+.vol-bar{width:4px;border-radius:1px;min-height:1px}
+.vol-bar.b{background:var(--green)}
+.vol-bar.s{background:var(--red)}
+
+@media(max-width:640px){
+  .summary-bar{padding:10px 12px;gap:6px}
+  .summary-card{min-width:90px;padding:8px 10px}
+  .summary-card .value{font-size:15px}
+  .content{padding:10px 12px}
+  .tab-content.active{grid-template-columns:1fr}
+  .trade-row{gap:6px;padding:8px 10px}
+  .trade-wallet{display:none}
+}
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <h1>📊 聪明钱交易分析</h1>
+  <div class="actions">
+    <button class="btn-topbar" id="btn-12h" onclick="loadAnalysis(12)">12h</button>
+    <button class="btn-topbar active" id="btn-24h" onclick="loadAnalysis(24)">24h</button>
+    <button class="btn-topbar" id="btn-48h" onclick="loadAnalysis(48)">48h</button>
+    <button class="btn-topbar" id="btn-72h" onclick="loadAnalysis(72)">72h</button>
+    <a href="/smartmoney" class="back">← 聪明钱管理</a>
+    <a href="/" class="back">← Dashboard</a>
+  </div>
+</div>
+
+<div class="summary-bar" id="summary-bar">
+  <div class="summary-card"><div class="label">总交易</div><div class="value" id="s-total">—</div><div class="sub" id="s-period"></div></div>
+  <div class="summary-card"><div class="label">买入</div><div class="value buy" id="s-buy">—</div><div class="sub" id="s-buy-n"></div></div>
+  <div class="summary-card"><div class="label">卖出</div><div class="value sell" id="s-sell">—</div><div class="sub" id="s-sell-n"></div></div>
+  <div class="summary-card"><div class="label">净买入</div><div class="value" id="s-net">—</div></div>
+  <div class="summary-card"><div class="label">活跃钱包</div><div class="value" id="s-wallets">—</div></div>
+  <div class="summary-card"><div class="label">涉及市场</div><div class="value" id="s-markets">—</div></div>
+</div>
+
+<div class="tab-bar">
+  <button class="tab-btn active" data-tab="markets">🏪 热门市场</button>
+  <button class="tab-btn" data-tab="wallets">👤 钱包排行</button>
+  <button class="tab-btn" data-tab="trades">📜 全部交易</button>
+</div>
+
+<div class="content">
+  <div class="tab-content active" id="tab-markets"></div>
+  <div class="tab-content" id="tab-wallets"></div>
+  <div class="tab-content" id="tab-trades" style="grid-template-columns:1fr"></div>
+</div>
+
+<script>
+const API = '';
+let currentHours = 24;
+let analysisData = null;
+
+// --- Helpers ---
+function $(id) { return document.getElementById(id); }
+function esc(s) { if (!s) return ''; const d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
+function shortAddr(a) { return a && a.length > 12 ? a.slice(0, 8) + '…' + a.slice(-4) : (a || ''); }
+function fmtUSD(v) {
+  if (v >= 1e6) return '$' + (v / 1e6).toFixed(1) + 'M';
+  if (v >= 1e3) return '$' + (v / 1e3).toFixed(1) + 'K';
+  return '$' + v.toFixed(0);
+}
+function fmtPrice(p) { return (p * 100).toFixed(1) + '¢'; }
+function relativeTime(ts) {
+  if (!ts) return '';
+  let t = ts; if (t < 1e12) t *= 1000;
+  const diff = Date.now() - t;
+  if (diff < 60000) return '刚刚';
+  if (diff < 3600000) return Math.floor(diff / 60000) + '分前';
+  if (diff < 86400000) return Math.floor(diff / 3600000) + 'h前';
+  return Math.floor(diff / 86400000) + 'd前';
+}
+function polyURL(t) {
+  if (t.event_slug) return 'https://polymarket.com/event/' + t.event_slug;
+  if (t.slug) return 'https://polymarket.com/market/' + t.slug;
+  return '';
+}
+
+// --- Tab switching ---
+document.querySelectorAll('.tab-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+    document.querySelectorAll('.tab-content').forEach(tc => tc.classList.remove('active'));
+    btn.classList.add('active');
+    $('tab-' + btn.dataset.tab).classList.add('active');
+  });
+});
+
+// --- Time range switching ---
+function setActiveRange(h) {
+  currentHours = h;
+  document.querySelectorAll('.topbar .btn-topbar').forEach(b => b.classList.remove('active'));
+  $('btn-' + h + 'h').classList.add('active');
+}
+
+// --- Load analysis data ---
+async function loadAnalysis(hours) {
+  if (hours) setActiveRange(hours);
+  const h = currentHours;
+
+  // Show loading
+  ['tab-markets', 'tab-wallets', 'tab-trades'].forEach(id => {
+    $(id).innerHTML = '<div class="empty-state"><div class="empty-icon">⏳</div><div class="empty-title">加载中...</div></div>';
+  });
+
+  try {
+    const res = await fetch(API + '/api/smart-money-analysis?hours=' + h);
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    analysisData = await res.json();
+    renderSummary(analysisData.summary);
+    renderMarkets(analysisData.markets);
+    renderWallets(analysisData.wallets);
+    renderTrades(analysisData.trades);
+  } catch (e) {
+    ['tab-markets', 'tab-wallets', 'tab-trades'].forEach(id => {
+      $(id).innerHTML = '<div class="empty-state"><div class="empty-icon">⚠️</div><div class="empty-title">加载失败: ' + esc(e.message) + '</div></div>';
+    });
+  }
+}
+
+// --- Render summary ---
+function renderSummary(s) {
+  if (!s) return;
+  $('s-total').textContent = s.total_trades;
+  $('s-period').textContent = '最近 ' + s.hours + ' 小时';
+  $('s-buy').textContent = fmtUSD(s.total_buy_usd);
+  $('s-buy-n').textContent = s.total_buys + ' 笔买入';
+  $('s-sell').textContent = fmtUSD(s.total_sell_usd);
+  $('s-sell-n').textContent = s.total_sells + ' 笔卖出';
+  const net = s.net_usd;
+  $('s-net').textContent = (net >= 0 ? '+' : '') + fmtUSD(Math.abs(net));
+  $('s-net').className = 'value ' + (net >= 0 ? 'net-pos' : 'net-neg');
+  $('s-wallets').textContent = s.unique_wallets;
+  $('s-markets').textContent = s.unique_markets;
+}
+
+// --- Render markets ---
+function renderMarkets(markets) {
+  const el = $('tab-markets');
+  if (!markets || markets.length === 0) {
+    el.innerHTML = '<div class="empty-state"><div class="empty-icon">🏪</div><div class="empty-title">该时段暂无交易数据</div></div>';
+    return;
+  }
+  let html = '';
+  for (const m of markets) {
+    const url = m.event_slug ? 'https://polymarket.com/event/' + esc(m.event_slug)
+               : m.slug ? 'https://polymarket.com/market/' + esc(m.slug) : '';
+    const titleLink = url ? '<a href="' + url + '" target="_blank">' + esc(m.title) + '</a>' : esc(m.title);
+    const total = m.buy_usd + m.sell_usd;
+    const buyPct = total > 0 ? ((m.buy_usd / total) * 100).toFixed(0) : 50;
+    const sellPct = 100 - buyPct;
+    const netClass = m.net_usd >= 0 ? 'net-pos' : 'net-neg';
+    const netSign = m.net_usd >= 0 ? '+' : '';
+
+    html += '<div class="market-card">';
+    html += '<div class="market-header"><div class="market-title">' + titleLink + '</div>';
+    html += '<div class="market-outcome">' + esc(m.outcome) + '</div></div>';
+    html += '<div class="market-stats">';
+    html += '<div class="market-stat">买入 <span class="val buy">' + fmtUSD(m.buy_usd) + '</span> <span style="color:var(--text3)">(' + m.buy_count + '笔)</span></div>';
+    html += '<div class="market-stat">卖出 <span class="val sell">' + fmtUSD(m.sell_usd) + '</span> <span style="color:var(--text3)">(' + m.sell_count + '笔)</span></div>';
+    html += '<div class="market-stat">净额 <span class="val ' + netClass + '">' + netSign + fmtUSD(Math.abs(m.net_usd)) + '</span></div>';
+    if (m.avg_price > 0) html += '<div class="market-stat">均价 <span class="val">' + fmtPrice(m.avg_price) + '</span></div>';
+    html += '</div>';
+    html += '<div class="market-bar"><div class="buy-bar" style="width:' + buyPct + '%"></div><div class="sell-bar" style="width:' + sellPct + '%"></div></div>';
+    if (m.wallets && m.wallets.length > 0) {
+      html += '<div class="market-wallets">';
+      for (const w of m.wallets) {
+        html += '<span class="wallet-pill">' + esc(w) + '</span>';
+      }
+      html += '</div>';
+    }
+    html += '</div>';
+  }
+  el.innerHTML = html;
+}
+
+// --- Render wallets ---
+function renderWallets(wallets) {
+  const el = $('tab-wallets');
+  if (!wallets || wallets.length === 0) {
+    el.innerHTML = '<div class="empty-state"><div class="empty-icon">👤</div><div class="empty-title">该时段暂无活跃钱包</div></div>';
+    return;
+  }
+  let html = '';
+  for (const w of wallets) {
+    const netClass = w.net_usd >= 0 ? 'net-pos' : 'net-neg';
+    const netSign = w.net_usd >= 0 ? '+' : '';
+    const displayName = esc(w.display_name || shortAddr(w.address));
+    const isAddr = w.display_name === w.address || !w.display_name;
+    const nameDisplay = isAddr ? shortAddr(w.address) : displayName;
+
+    html += '<a class="wallet-card" href="https://polymarket.com/profile/' + encodeURIComponent(w.address) + '" target="_blank">';
+    html += '<div class="wallet-avatar">🧠</div>';
+    html += '<div class="wallet-info">';
+    html += '<div class="wallet-name">' + nameDisplay + '</div>';
+    if (!isAddr) html += '<div class="wallet-addr">' + esc(w.address) + '</div>';
+    html += '<div class="wallet-stats">';
+    html += '<div class="wallet-stat">买入 <span class="val buy">' + fmtUSD(w.buy_usd) + '</span> <span style="color:var(--text3)">(' + w.buy_count + ')</span></div>';
+    html += '<div class="wallet-stat">卖出 <span class="val sell">' + fmtUSD(w.sell_usd) + '</span> <span style="color:var(--text3)">(' + w.sell_count + ')</span></div>';
+    html += '<div class="wallet-stat">净额 <span class="val ' + netClass + '">' + netSign + fmtUSD(Math.abs(w.net_usd)) + '</span></div>';
+    html += '<div class="wallet-stat">市场 <span class="val">' + w.markets + '</span></div>';
+    html += '</div></div></a>';
+  }
+  el.innerHTML = html;
+}
+
+// --- Render trades ---
+function renderTrades(trades) {
+  const el = $('tab-trades');
+  if (!trades || trades.length === 0) {
+    el.innerHTML = '<div class="empty-state"><div class="empty-icon">📜</div><div class="empty-title">该时段暂无交易记录</div></div>';
+    return;
+  }
+  let html = '';
+  for (const t of trades) {
+    const isBuy = t.side === 'BUY';
+    const sideClass = isBuy ? 'buy' : 'sell';
+    const sideText = isBuy ? '买' : '卖';
+    const name = t.profile_name || shortAddr(t.proxy_wallet);
+    const url = polyURL(t);
+    const titleHtml = url ? '<a href="' + url + '" target="_blank" style="color:var(--white)">' + esc(t.title) + '</a>' : esc(t.title);
+
+    html += '<div class="trade-row">';
+    html += '<div class="trade-side ' + sideClass + '">' + sideText + '</div>';
+    html += '<div class="trade-market">' + titleHtml + '</div>';
+    html += '<div class="trade-outcome">' + esc(t.outcome) + '</div>';
+    html += '<div class="trade-usd">' + fmtUSD(t.usd_value) + '</div>';
+    html += '<div class="trade-price">' + fmtPrice(t.price) + '</div>';
+    html += '<div class="trade-wallet" title="' + esc(t.proxy_wallet) + '">' + esc(name) + '</div>';
+    html += '<div class="trade-time">' + relativeTime(t.timestamp) + '</div>';
+    html += '</div>';
+  }
+  el.innerHTML = html;
+}
+
+// --- Init ---
+loadAnalysis(24);
+</script>
+</body>
+</html>

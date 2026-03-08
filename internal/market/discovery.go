@@ -10,7 +10,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/mkfoyw/polyscan/internal/store"
+	"github.com/mkfoyw/polyscan/internal/repository"
+	"github.com/mkfoyw/polyscan/internal/services"
 	"github.com/mkfoyw/polyscan/internal/types"
 )
 
@@ -20,7 +21,7 @@ const gammaAPI = "https://gamma-api.polymarket.com"
 // and maintains the MarketStore.
 type Discovery struct {
 	store           *types.MarketStore
-	settlementStore *store.SettlementStore
+	settlementSvc *services.SettlementService
 	client          *http.Client
 	logger          *slog.Logger
 	interval        time.Duration
@@ -31,17 +32,17 @@ type Discovery struct {
 	OnNewMarkets func(assetIDs []string)
 
 	// OnNewSettlement is called when a settlement is synced (for SSE push).
-	OnNewSettlement func(store.SettlementRecord)
+	OnNewSettlement func(repository.SettlementRecord)
 
 	// OnNewMarketInfo is called when a new market is discovered (for SSE push).
 	OnNewMarketInfo func(*types.MarketInfo)
 }
 
 // NewDiscovery creates a new market Discovery.
-func NewDiscovery(mktStore *types.MarketStore, settlementStore *store.SettlementStore, interval time.Duration, watchSeries []int, logger *slog.Logger) *Discovery {
+func NewDiscovery(mktStore *types.MarketStore, settlementSvc *services.SettlementService, interval time.Duration, watchSeries []int, logger *slog.Logger) *Discovery {
 	return &Discovery{
 		store:           mktStore,
-		settlementStore: settlementStore,
+		settlementSvc:   settlementSvc,
 		client:          &http.Client{Timeout: 60 * time.Second},
 		logger:          logger,
 		interval:        interval,
@@ -277,7 +278,7 @@ func (d *Discovery) fetchEventsFromURL(ctx context.Context, url string) ([]types
 
 // syncSettlements fetches recently closed events and stores settlement records.
 func (d *Discovery) syncSettlements(ctx context.Context) {
-	if d.settlementStore == nil {
+	if d.settlementSvc == nil {
 		return
 	}
 
@@ -302,7 +303,7 @@ func (d *Discovery) syncSettlements(ctx context.Context) {
 			if imgURL == "" {
 				imgURL = event.Image
 			}
-			rec := &store.SettlementRecord{
+			rec := &repository.SettlementRecord{
 				ConditionID: m.ConditionID,
 				Question:    m.Question,
 				Slug:        m.Slug,
@@ -310,7 +311,7 @@ func (d *Discovery) syncSettlements(ctx context.Context) {
 				Outcome:     outcome,
 				ImageURL:    imgURL,
 			}
-			if err := d.settlementStore.Upsert(ctx, rec); err != nil {
+			if err := d.settlementSvc.Upsert(ctx, rec); err != nil {
 				d.logger.Error("failed to store settlement", "error", err)
 			} else {
 				count++
